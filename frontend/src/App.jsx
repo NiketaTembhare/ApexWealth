@@ -10,17 +10,25 @@ import TimeFilter from './components/TimeFilter';
 import FinancialForm from './components/FinancialForm';
 import AdviceDashboard from './components/AdviceDashboard';
 import Spinner from './components/Spinner';
-import { generateAdvice, logoutUser } from './services/api';
-import { analyzeTransactions } from './utils/syntheticData';
+import DigitalTwin from './components/DigitalTwin';
+import GraphVisualizer from './components/GraphVisualizer';
+import DetectiveTimeline from './components/DetectiveTimeline';
+import AgentBoardroom from './components/AgentBoardroom';
+import HistoryView from './components/HistoryView';
+import { generateAdvice, logoutUser, getTransactions } from './services/api';
+import { analyzeTransactions, extractFinancialProfile } from './utils/syntheticData';
 import {
   Sparkles, X, LogOut, User, Upload, BarChart2, Brain, Home,
-  ArrowRight, ChevronLeft, Database
+  ArrowRight, ChevronLeft, Database, Network, Sliders
 } from 'lucide-react';
 
 const NAV_ITEMS = [
   { id: 'upload', label: 'Import Data', icon: Upload },
   { id: 'dashboard', label: 'Analytics', icon: BarChart2 },
-  { id: 'agents', label: 'AI Agents', icon: Brain },
+  { id: 'boardroom', label: 'AI Boardroom', icon: Brain },
+  { id: 'simulation', label: 'Digital Twin', icon: Sliders },
+  { id: 'graph', label: 'Knowledge Graph', icon: Network },
+  { id: 'history', label: 'History', icon: Database },
   { id: 'advisor', label: 'AI Advisor', icon: Sparkles },
 ];
 
@@ -32,15 +40,27 @@ export default function App() {
   const [inputData, setInputData] = useState(null);
   const [transactions, setTransactions] = useState([]);
   const [analytics, setAnalytics] = useState(null);
+  const [suggestedProfile, setSuggestedProfile] = useState(null); // extracted from uploaded transactions
   const [filter, setFilter] = useState('monthly');
   const [activeNav, setActiveNav] = useState('upload');
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [caseFile, setCaseFile] = useState(null);
+  const [boardroomIsDemo, setBoardroomIsDemo] = useState(false); // tracks if boardroom used synthetic fallback
 
-  // Restore session
+  // Restore session and load persisted data
   useEffect(() => {
     const savedUser = localStorage.getItem('apex_user');
     if (savedUser) {
-      try { setUser(JSON.parse(savedUser)); } catch { localStorage.removeItem('apex_user'); }
+      try { 
+        setUser(JSON.parse(savedUser)); 
+        getTransactions().then(res => {
+          if (res && res.transactions && res.transactions.length > 0) {
+            handleDataLoaded(res.transactions, false);
+          }
+        }).catch(console.error);
+      } catch { 
+        localStorage.removeItem('apex_user'); 
+      }
     }
   }, []);
 
@@ -52,12 +72,26 @@ export default function App() {
     }
   }, [transactions, filter]);
 
-  // Auto-navigate to dashboard after data load
-  const handleDataLoaded = (txns) => {
+  // Auto-navigate to boardroom after data load
+  const handleDataLoaded = (txns, autoNav = true) => {
     setTransactions(txns);
     const result = analyzeTransactions(txns, filter);
     setAnalytics(result);
-    setTimeout(() => setActiveNav('dashboard'), 300);
+    // Extract financial profile for Auto-Fill feature
+    const profile = extractFinancialProfile(txns);
+    setSuggestedProfile(profile);
+    setCaseFile(null); // Reset past boardroom debate
+    if (autoNav) {
+      setTimeout(() => setActiveNav('boardroom'), 300);
+    } else {
+      setActiveNav('dashboard');
+    }
+  };
+
+  const handleBoardroomComplete = (verdict) => {
+    setCaseFile(verdict);
+    // If the verdict came from the synthetic fallback, mark as demo
+    setBoardroomIsDemo(verdict?.isDemo || false);
   };
 
   const handleFilterChange = (newFilter) => {
@@ -156,18 +190,44 @@ export default function App() {
           </div>
         );
 
-      case 'agents':
+      case 'boardroom':
         return (
           <div className="space-y-6 animate-fade-in">
-            <div className="glass-panel-glow p-5">
-              <h2 className="text-lg font-bold text-bank-textActive flex items-center gap-2">
-                <Brain className="w-5 h-5 text-purple-400" /> Multi-AI Agent System
-              </h2>
-              <p className="text-xs text-bank-textMuted mt-1">6 specialized AI agents analyzing your financial data in real-time</p>
-            </div>
-            <AIAgentPanel active={true} analytics={analytics} />
+            {transactions.length > 0 ? (
+              <>
+                <AgentBoardroom 
+                  transactions={transactions} 
+                  onComplete={handleBoardroomComplete} 
+                />
+                
+                {caseFile && (
+                  <DetectiveTimeline 
+                    timeline={caseFile.timeline} 
+                    confidenceScore={caseFile.confidence_score} 
+                    reasoning={caseFile.reasoning}
+                    isDemo={boardroomIsDemo}
+                  />
+                )}
+              </>
+            ) : (
+              <div className="glass-panel p-16 text-center space-y-4">
+                <Brain className="w-12 h-12 text-bank-textMuted mx-auto animate-pulse" />
+                <p className="text-bank-textMuted font-semibold">No transactions loaded for the boardroom</p>
+                <button onClick={() => setActiveNav('upload')} className="px-6 py-3 text-sm font-bold bg-gradient-to-r from-cyan-500 to-purple-600 text-white rounded-xl flex items-center gap-2 mx-auto">
+                  Import Bank Statement or Image <ArrowRight className="w-4 h-4" />
+                </button>
+              </div>
+            )}
           </div>
         );
+
+      case 'simulation':
+        return <DigitalTwin analytics={analytics} />;
+
+      case 'graph':
+        return <GraphVisualizer />;
+
+
 
       case 'advisor':
         return (
@@ -197,10 +257,13 @@ export default function App() {
 
             {advice
               ? <AdviceDashboard advice={advice} inputData={inputData} onReset={() => { setAdvice(null); setInputData(null); }} />
-              : <FinancialForm onSubmit={handleFormSubmit} />
+              : <FinancialForm onSubmit={handleFormSubmit} suggestedProfile={suggestedProfile} />
             }
           </div>
         );
+
+      case 'history':
+        return <HistoryView />;
 
       default:
         return null;

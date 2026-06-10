@@ -165,3 +165,16 @@ lerna-debug.log*
 # OS-specific
 .DS_Store
 Thumbs.db
+
+# Project-specific generated databases and uploads
+backend/data/qdrant_db/
+backend/data/copilot.db
+backend/data/uploads/
+data/
+
+# Temporary test files and reports
+*dummy*
+frontend/test-results/
+frontend/test_axios.js
+frontend/test_axios_native.js
+frontend/test_ui_upload.js

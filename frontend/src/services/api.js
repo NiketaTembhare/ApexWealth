@@ -130,9 +130,14 @@ export const uploadStatement = async (file) => {
   try {
     const formData = new FormData();
     formData.append('file', file);
-    const response = await apiClient.post('/upload-statement', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-      timeout: 90000, // PDF parsing can take longer
+    
+    // Bypass apiClient to prevent global 'application/json' Content-Type from breaking multipart boundaries
+    const token = localStorage.getItem('apex_token');
+    const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+    
+    const response = await axios.post(`${API_BASE_URL}/upload-statement`, formData, {
+      headers,
+      timeout: 90000, // PDF/Image parsing can take longer
     });
     return response.data;
   } catch (error) {
@@ -146,6 +151,18 @@ export const uploadStatement = async (file) => {
 export const parseRawTransactions = async (transactions) => {
   try {
     const response = await apiClient.post('/parse-transactions', { transactions });
+    return response.data;
+  } catch (error) {
+    handleError(error);
+  }
+};
+
+/**
+ * Fetch persisted user transactions or synthetic demo transactions.
+ */
+export const getTransactions = async () => {
+  try {
+    const response = await apiClient.get('/transactions');
     return response.data;
   } catch (error) {
     handleError(error);

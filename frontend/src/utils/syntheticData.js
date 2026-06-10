@@ -296,3 +296,106 @@ export const CATEGORY_COLORS = {
   'Health': '#ef4444',
   'Salary': '#22c55e',
 };
+
+/**
+ * Extracts a financial form profile from real uploaded transaction data.
+ * Returns monthly averages for each form field, along with source details.
+ * Used to power the "Auto-Fill from Statement" feature in FinancialForm.
+ *
+ * @param {Array} transactions - Parsed transaction objects
+ * @returns {Object} Extracted profile with values and source metadata
+ */
+export function extractFinancialProfile(transactions) {
+  if (!transactions || transactions.length === 0) return null;
+
+  // Determine how many distinct months of data exist
+  const monthKeys = new Set(
+    transactions.map(t => {
+      const d = new Date(t.date);
+      return isNaN(d.getTime()) ? null : `${d.getFullYear()}-${d.getMonth()}`;
+    }).filter(Boolean)
+  );
+  const monthCount = Math.max(1, monthKeys.size);
+
+  // Category total aggregation
+  const categoryTotals = {};
+  let totalIncome = 0;
+  let incomeCount = 0;
+
+  transactions.forEach(t => {
+    const amt = Number(t.amount) || 0;
+    if (t.type === 'Credit') {
+      // Only count salary/income credits (not internal transfers)
+      const desc = (t.description || '').toLowerCase();
+      const cat = (t.category || '').toLowerCase();
+      if (cat.includes('salary') || desc.includes('salary') || desc.includes('credit') || cat === 'salary') {
+        totalIncome += amt;
+        incomeCount++;
+      }
+    } else {
+      const cat = t.category || 'Uncategorized';
+      if (!categoryTotals[cat]) categoryTotals[cat] = 0;
+      categoryTotals[cat] += amt;
+    }
+  });
+
+  // Monthly averages
+  const monthlyAvg = (total) => Math.round(total / monthCount);
+
+  // Map categories to form fields
+  const rentTotal = categoryTotals['Rent'] || 0;
+  const foodTotal = categoryTotals['Food & Dining'] || 0;
+  const shoppingTotal = categoryTotals['Shopping'] || 0;
+  const travelTotal = (categoryTotals['Travel'] || 0) + (categoryTotals['Fuel'] || 0);
+  const entertainmentTotal = categoryTotals['Entertainment'] || 0;
+
+  // Average monthly income from salary credits
+  const avgMonthlyIncome = incomeCount > 0
+    ? Math.round(totalIncome / Math.min(incomeCount, monthCount))
+    : 0;
+
+  const profile = {
+    monthly_income: avgMonthlyIncome,
+    rent_expense: monthlyAvg(rentTotal),
+    food_expense: monthlyAvg(foodTotal),
+    shopping_expense: monthlyAvg(shoppingTotal),
+    travel_expense: monthlyAvg(travelTotal),
+    entertainment_expense: monthlyAvg(entertainmentTotal),
+    savings_goal: '',     // Can't determine from transactions alone
+    financial_goal_timeline: '', // Same
+  };
+
+  // Source details for display
+  const sources = {
+    monthly_income: incomeCount > 0
+      ? `${incomeCount} salary credits detected across ${monthCount} month${monthCount > 1 ? 's' : ''}`
+      : null,
+    rent_expense: rentTotal > 0
+      ? `${monthCount}-month avg from ${(categoryTotals['Rent'] ? 1 : 0)} Rent transactions`
+      : null,
+    food_expense: foodTotal > 0
+      ? `Avg of Food & Dining across ${monthCount} month${monthCount > 1 ? 's' : ''}`
+      : null,
+    shopping_expense: shoppingTotal > 0
+      ? `Avg of Shopping transactions across ${monthCount} month${monthCount > 1 ? 's' : ''}`
+      : null,
+    travel_expense: travelTotal > 0
+      ? `Combined Travel + Fuel avg across ${monthCount} month${monthCount > 1 ? 's' : ''}`
+      : null,
+    entertainment_expense: entertainmentTotal > 0
+      ? `Entertainment avg across ${monthCount} month${monthCount > 1 ? 's' : ''}`
+      : null,
+  };
+
+  const hasAnyData = Object.values(profile).some(v => v && v > 0);
+  if (!hasAnyData) return null;
+
+  return {
+    profile,
+    sources,
+    monthCount,
+    totalTransactions: transactions.length,
+    detectedCategories: Object.keys(categoryTotals).filter(k => categoryTotals[k] > 0),
+  };
+}
+

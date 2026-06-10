@@ -15,12 +15,12 @@
     background-attachment: fixed;
   }
 
-  /* Custom input styles */
+  /* Custom input styles — base padding is set per-component to support icon prefixes */
   input[type="number"],
   input[type="text"],
   input[type="email"],
   input[type="password"] {
-    @apply bg-bank-bg/60 border border-bank-cardBorder text-bank-textActive rounded-lg px-4 py-2.5 outline-none transition-all duration-200 focus:border-cyan-500/60 focus:ring-2 focus:ring-cyan-500/10 w-full placeholder-bank-textMuted/40;
+    @apply bg-bank-bg/60 border border-bank-cardBorder text-bank-textActive rounded-lg py-2.5 outline-none transition-all duration-200 focus:border-cyan-500/60 focus:ring-2 focus:ring-cyan-500/10 w-full placeholder-bank-textMuted/60;
     -moz-appearance: textfield;
   }
   input[type="number"]::-webkit-outer-spin-button,

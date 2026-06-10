@@ -3,22 +3,28 @@ import logging
 import json
 import datetime
 from typing import Optional, List
-from fastapi import FastAPI, HTTPException, status, Header, UploadFile, File, Form
+from sqlalchemy.orm import Session
+from fastapi import FastAPI, HTTPException, status, Header, UploadFile, File, Form, Depends, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
 # Import custom schemas and service
 from schemas.advice import (
-    FinancialInput, 
-    AdviceResponse, 
-    ChatRequest, 
-    UserRegister, 
-    UserLogin, 
+    FinancialInput,
+    AdviceResponse,
+    ChatRequest,
+    UserRegister,
+    UserLogin,
     TokenResponse
 )
 from services.gemini import get_financial_advice, get_chat_response
-from services.auth import hash_password, verify_password, create_jwt_token, verify_jwt_token
+from services.auth import (
+    hash_password, verify_password, create_jwt_token, verify_jwt_token,
+    get_user_by_username, register_new_user, authenticate_user
+)
 from services.document_parser import parse_document
+from services.db import init_db, get_db
+from services.rag import init_rag_system
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -34,7 +40,7 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS Configuration - Enable all origins for fast robust local MVP testing
+# CORS Configuration
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -42,6 +48,32 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.on_event("startup")
+def on_startup():
+    logger.info("Initializing relational SQLite database...")
+    init_db()
+    logger.info("Initializing vector database and RAG system...")
+    try:
+        init_rag_system()
+    except Exception as e:
+        logger.error(f"Failed to initialize RAG collection at startup: {e}")
+
+    logger.info("Listing all registered API routes:")
+    for route in app.routes:
+        methods = getattr(route, "methods", None)
+        methods_str = f"[{', '.join(methods)}]" if methods else ""
+        logger.info(f"  Route: {methods_str} {route.path} -> {route.name}")
+
+@app.on_event("shutdown")
+def on_shutdown():
+    logger.info("Shutting down backend and releasing database locks...")
+    try:
+        from services.rag import get_qdrant_client
+        get_qdrant_client().close()
+        logger.info("Successfully released Qdrant vector database lock.")
+    except Exception as e:
+        logger.error(f"Error closing Qdrant connection: {e}")
 
 # Helper to verify authenticated user
 def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
@@ -60,34 +92,35 @@ def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
     return user
 
 # Helper to save user advice logs to audit history
-def save_to_history(username: str, payload: FinancialInput, advice: AdviceResponse):
-    os.makedirs("data", exist_ok=True)
-    history_file = "data/history.json"
-    
-    entry = {
-        "username": username,
-        "timestamp": datetime.datetime.now().isoformat(),
-        "input": payload.dict(),
-        "advice": advice.dict()
+def save_to_history(db: Session, username: str, payload: FinancialInput, advice: AdviceResponse):
+    from services.db import Report, Document
+    user_db = get_user_by_username(db, username)
+    if not user_db: return
+
+    latest_doc = db.query(Document).filter(Document.user_id == user_db.id).order_by(Document.uploaded_at.desc()).first()
+    doc_id = latest_doc.id if latest_doc else None
+
+    recommendations = {
+        "budgeting": advice.budgeting_advice,
+        "savings": advice.savings_recommendation,
+        "investment": advice.investment_suggestion,
+        "emergency_fund": advice.emergency_fund_recommendation
     }
-    
-    data = []
-    if os.path.exists(history_file):
-        try:
-            with open(history_file, "r") as f:
-                data = json.load(f)
-                if not isinstance(data, list):
-                    data = []
-        except Exception:
-            data = []
-            
-    data.append(entry)
-    
-    try:
-        with open(history_file, "w") as f:
-            json.dump(data, f, indent=2)
-    except Exception as e:
-        logger.error(f"Failed to save history: {str(e)}")
+
+    report = Report(
+        user_id=user_db.id,
+        document_id=doc_id,
+        summary=advice.personalized_summary,
+        reasoning=advice.spending_analysis,
+        recommendations=json.dumps(recommendations),
+        risk_score=75.0,
+        confidence_score=90.0,
+        timeline=json.dumps([{"event": "Analyzed Finances", "date": datetime.datetime.now().isoformat()}])
+    )
+    db.add(report)
+    db.commit()
+
+# ==================== HEALTH ====================
 
 @app.get("/health", status_code=status.HTTP_200_OK, tags=["Health"])
 def health_check():
@@ -101,118 +134,74 @@ def health_check():
 # ==================== AUTHENTICATION ENDPOINTS ====================
 
 @app.post("/auth/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED, tags=["Auth"])
-def register_user(payload: UserRegister):
-    """Registers a new user, hashes password, and saves credentials to local users.json."""
-    os.makedirs("data", exist_ok=True)
-    users_file = "data/users.json"
-    
-    users = {}
-    if os.path.exists(users_file):
-        try:
-            with open(users_file, "r") as f:
-                users = json.load(f)
-        except Exception:
-            users = {}
-            
-    if payload.username in users:
+def register_user(payload: UserRegister, db: Session = Depends(get_db)):
+    """Registers a new user, hashes password, and saves credentials to SQLite database."""
+    user = get_user_by_username(db, payload.username)
+    if user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Username already registered. Please choose another or sign in."
         )
-        
-    # Store credentials securely
-    users[payload.username] = {
-        "username": payload.username,
-        "name": payload.name,
-        "hashed_password": hash_password(payload.password),
-        "created_at": datetime.datetime.utcnow().isoformat()
-    }
-    
     try:
-        with open(users_file, "w") as f:
-            json.dump(users, f, indent=2)
+        new_user = register_new_user(db, payload.username, payload.name, payload.password)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to save user database: {str(e)}"
+            detail=f"Failed to register user: {str(e)}"
         )
-        
-    # Create session JWT
-    token = create_jwt_token(payload.username, payload.name)
+    token = create_jwt_token(new_user.username, new_user.name)
     return {
         "access_token": token,
-        "name": payload.name,
-        "username": payload.username
+        "name": new_user.name,
+        "username": new_user.username
     }
 
 @app.post("/auth/login", response_model=TokenResponse, status_code=status.HTTP_200_OK, tags=["Auth"])
-def login_user(payload: UserLogin):
-    """Authenticates credentials against stored users.json and returns a session JWT token."""
-    users_file = "data/users.json"
-    if not os.path.exists(users_file):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid credentials. Please register first."
-        )
-        
-    try:
-        with open(users_file, "r") as f:
-            users = json.load(f)
-    except Exception:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to read user database."
-        )
-        
-    if payload.username not in users or not verify_password(payload.password, users[payload.username]["hashed_password"]):
+def login_user(payload: UserLogin, db: Session = Depends(get_db)):
+    """Authenticates credentials against SQLite and returns a session JWT token."""
+    user = authenticate_user(db, payload.username, payload.password)
+    if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password. Please try again."
         )
-        
-    user_info = users[payload.username]
-    token = create_jwt_token(payload.username, user_info["name"])
+    token = create_jwt_token(user.username, user.name)
     return {
         "access_token": token,
-        "name": user_info["name"],
-        "username": user_info["username"]
+        "name": user.name,
+        "username": user.username
     }
 
 # ==================== PERSONAL FINANCIAL ADVICE ====================
 
 @app.post(
-    "/generate-advice", 
-    response_model=AdviceResponse, 
-    status_code=status.HTTP_200_OK, 
+    "/generate-advice",
+    response_model=AdviceResponse,
+    status_code=status.HTTP_200_OK,
     tags=["Financial Advice"]
 )
-def generate_advice(payload: FinancialInput, authorization: Optional[str] = Header(None)):
+def generate_advice(payload: FinancialInput, authorization: Optional[str] = Header(None), db: Session = Depends(get_db)):
     """
     Accepts user spending habits, runs calculations,
-    and calls Google Gemini to return a structured JSON report. Tethers to authenticated session.
+    and calls Google Gemini to return a structured JSON report.
     """
     user = get_current_user(authorization)
-    logger.info(f"Received request forpersonalized financial advice from user: {user['sub']}")
-    
-    # Simple sanity check
+    logger.info(f"Received request for personalized financial advice from user: {user['sub']}")
+
     total_expenses = (
-        payload.rent_expense + 
-        payload.food_expense + 
-        payload.shopping_expense + 
-        payload.travel_expense + 
+        payload.rent_expense +
+        payload.food_expense +
+        payload.shopping_expense +
+        payload.travel_expense +
         payload.entertainment_expense
     )
     if total_expenses > payload.monthly_income * 2:
         logger.warning(f"User {user['sub']} monthly expenses are extremely high compared to income.")
 
     try:
-        # Request advice from Gemini
         advice = get_financial_advice(payload)
         logger.info("Successfully generated personalized financial advice.")
-        
-        # Save request and response history to JSON tied to specific authenticated username
-        save_to_history(user["sub"], payload, advice)
-        
+        save_to_history(db, user["sub"], payload, advice)
         return advice
     except ValueError as ve:
         logger.error(f"Configuration error: {str(ve)}")
@@ -228,25 +217,29 @@ def generate_advice(payload: FinancialInput, authorization: Optional[str] = Head
         )
 
 @app.get("/history", tags=["Financial Advice"])
-def get_advice_history(authorization: Optional[str] = Header(None)):
+def get_advice_history(authorization: Optional[str] = Header(None), db: Session = Depends(get_db)):
     """Reads and returns all historical advice reports matching the authenticated user's session."""
     user = get_current_user(authorization)
-    history_file = "data/history.json"
-    if not os.path.exists(history_file):
+    user_db = get_user_by_username(db, user["sub"])
+    if not user_db:
         return []
-    try:
-        with open(history_file, "r") as f:
-            data = json.load(f)
-            if not isinstance(data, list):
-                return []
-            # Filter history entries matching the current user's username
-            user_history = [entry for entry in data if entry.get("username") == user["sub"]]
-            return user_history
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to read advice history: {str(e)}"
-        )
+
+    from services.db import Report
+    reports = db.query(Report).filter(Report.user_id == user_db.id).order_by(Report.generated_at.desc()).all()
+
+    res = []
+    for r in reports:
+        res.append({
+            "id": r.id,
+            "filename": r.document.filename if r.document else "Manual Input",
+            "upload_date": r.document.uploaded_at.isoformat() if r.document else r.generated_at.isoformat(),
+            "generated_at": r.generated_at.isoformat(),
+            "risk_score": r.risk_score,
+            "confidence_score": r.confidence_score,
+            "summary": r.summary,
+            "timeline": json.loads(r.timeline) if r.timeline else []
+        })
+    return res
 
 @app.post("/chat", tags=["Financial Chatbot"])
 def chat_followup(payload: ChatRequest, authorization: Optional[str] = Header(None)):
@@ -275,25 +268,23 @@ def chat_followup(payload: ChatRequest, authorization: Optional[str] = Header(No
 # ==================== DOCUMENT UPLOAD & PARSING ENDPOINTS ====================
 
 @app.post("/upload-statement", tags=["Document Parsing"])
-async def upload_statement(file: UploadFile = File(...), authorization: Optional[str] = Header(None)):
+async def upload_statement(file: UploadFile = File(...), authorization: Optional[str] = Header(None), db: Session = Depends(get_db)):
     """
     Universal document upload endpoint.
-    Accepts PDF, CSV, Excel (.xlsx/.xls), or plain text (.txt).
+    Accepts PDF, CSV, Excel (.xlsx/.xls), image scans, or plain text (.txt).
     Extracts transactions with AI-powered categorization and confidence scoring.
     """
     user = get_current_user(authorization)
     logger.info(f"Document upload from user {user['sub']}: {file.filename} ({file.content_type})")
 
-    # Validate file type
-    allowed_extensions = {".pdf", ".csv", ".xlsx", ".xls", ".txt"}
+    allowed_extensions = {".pdf", ".csv", ".xlsx", ".xls", ".txt", ".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".gif"}
     ext = os.path.splitext(file.filename or "")[1].lower()
     if ext not in allowed_extensions:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Unsupported file type '{ext}'. Supported: PDF, CSV, XLSX, XLS, TXT"
+            detail=f"Unsupported file type '{ext}'. Supported: PDF, CSV, XLSX, XLS, TXT, PNG, JPG, JPEG, TIFF, BMP"
         )
 
-    # Size limit: 20 MB
     file_bytes = await file.read()
     if len(file_bytes) > 20 * 1024 * 1024:
         raise HTTPException(
@@ -304,6 +295,34 @@ async def upload_statement(file: UploadFile = File(...), authorization: Optional
     try:
         result = parse_document(file_bytes, file.filename or "upload", file.content_type or "")
         logger.info(f"Parsed {result['total_count']} transactions from {result['source_type']} (confidence: {result['avg_confidence']}%)")
+
+        import uuid
+        from services.db import Document
+        from services.graph_rag import build_transaction_graph_edges
+
+        os.makedirs("data/uploads", exist_ok=True)
+        unique_name = f"{uuid.uuid4()}_{file.filename}"
+        storage_path = os.path.join("data/uploads", unique_name)
+        with open(storage_path, "wb") as f:
+            f.write(file_bytes)
+
+        user_db = get_user_by_username(db, user["sub"])
+
+        doc = Document(
+            user_id=user_db.id,
+            filename=file.filename,
+            file_type=file.content_type or "unknown",
+            storage_path=storage_path,
+            transactions=json.dumps(result.get("transactions", []))
+        )
+        db.add(doc)
+        db.commit()
+        db.refresh(doc)
+
+        if result.get("transactions"):
+            build_transaction_graph_edges(result.get("transactions"), user_db.id, db)
+
+        result["document_id"] = doc.id
         return result
     except Exception as e:
         logger.error(f"Document parsing failed: {e}")
@@ -312,6 +331,25 @@ async def upload_statement(file: UploadFile = File(...), authorization: Optional
             detail=f"Failed to parse document: {str(e)}"
         )
 
+@app.get("/transactions", tags=["Document Parsing"])
+async def get_user_transactions(authorization: Optional[str] = Header(None), db: Session = Depends(get_db)):
+    """Returns persisted transactions or demo data if none exists."""
+    user = get_current_user(authorization)
+    user_db = get_user_by_username(db, user["sub"])
+    from services.db import Document
+
+    latest_doc = db.query(Document).filter(Document.user_id == user_db.id).filter(Document.transactions != None).order_by(Document.uploaded_at.desc()).first()
+
+    if latest_doc and latest_doc.transactions:
+        txns = json.loads(latest_doc.transactions)
+        return {
+            "transactions": txns,
+            "total_count": len(txns),
+            "source_type": "Persisted User Data",
+            "document_id": latest_doc.id
+        }
+    else:
+        return await get_synthetic_data()
 
 @app.post("/parse-transactions", tags=["Document Parsing"])
 async def parse_raw_transactions(payload: dict, authorization: Optional[str] = Header(None)):
@@ -355,7 +393,6 @@ async def parse_raw_transactions(payload: dict, authorization: Optional[str] = H
         "avg_confidence": round(sum(t.get("confidence", 80) for t in enriched) / max(len(enriched), 1), 1),
         "source_type": "manual",
     }
-
 
 @app.get("/synthetic-data", tags=["Document Parsing"])
 async def get_synthetic_data():
@@ -410,6 +447,117 @@ async def get_synthetic_data():
     transactions.sort(key=lambda x: x["date"], reverse=True)
     return {"transactions": transactions, "total_count": len(transactions), "source_type": "Synthetic Demo"}
 
+
+# ==================== ADVANCED FINANCIAL COPILOT ENDPOINTS ====================
+
+from pydantic import BaseModel
+from services.simulation import run_financial_stress_simulation
+from services.graph_rag import get_graph_elements_payload, build_transaction_graph_edges
+from services.agents import run_boardroom_debate_stream
+
+class StressSimulationRequest(BaseModel):
+    monthly_income: float
+    necessities_expense: float
+    discretionary_expense: float
+    current_savings: float
+    target_goal: float
+    timeline_months: int
+    discretionary_reduction_pct: float
+    sip_addition: float
+    market_return_type: str
+    inflation_rate_annual: float
+    shock_event: str
+
+@app.post("/simulation/run", tags=["Stress Simulation"])
+def run_simulation(payload: StressSimulationRequest, authorization: Optional[str] = Header(None), db: Session = Depends(get_db)):
+    """Runs a Monte Carlo projection stress-tested against inflation, crash, or income shocks."""
+    user = get_current_user(authorization)
+    user_db = get_user_by_username(db, user["sub"])
+    if not user_db:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    try:
+        results = run_financial_stress_simulation(
+            monthly_income=payload.monthly_income,
+            necessities_expense=payload.necessities_expense,
+            discretionary_expense=payload.discretionary_expense,
+            current_savings=payload.current_savings,
+            target_goal=payload.target_goal,
+            timeline_months=payload.timeline_months,
+            discretionary_reduction_pct=payload.discretionary_reduction_pct,
+            sip_addition=payload.sip_addition,
+            market_return_type=payload.market_return_type,
+            inflation_rate_annual=payload.inflation_rate_annual,
+            shock_event=payload.shock_event
+        )
+
+        from services.db import Simulation
+        sim_record = Simulation(
+            user_id=user_db.id,
+            name=f"Stress Test: {payload.shock_event.title()}",
+            parameters=json.dumps(payload.dict()),
+            results=json.dumps(results)
+        )
+        db.add(sim_record)
+        db.commit()
+
+        return results
+    except Exception as e:
+        logger.error(f"Simulation failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Simulation failed: {str(e)}")
+
+@app.get("/graph/elements", tags=["Knowledge Graph"])
+def get_knowledge_graph(authorization: Optional[str] = Header(None), db: Session = Depends(get_db)):
+    """Retrieves Cytoscape node-link relations for the user's transactions."""
+    user = get_current_user(authorization)
+    user_db = get_user_by_username(db, user["sub"])
+    if not user_db:
+        raise HTTPException(status_code=404, detail="User not found")
+    return get_graph_elements_payload(user_db.id, db)
+
+@app.websocket("/ws/boardroom")
+async def websocket_boardroom(websocket: WebSocket, db: Session = Depends(get_db)):
+    """Asynchronous WebSocket channel streaming live Agent Boardroom dialogue logs."""
+    await websocket.accept()
+    logger.info("New Boardroom WebSocket connection established.")
+    try:
+        data = await websocket.receive_text()
+        params = json.loads(data)
+
+        token = params.get("token")
+        transactions = params.get("transactions", [])
+
+        if not token:
+            await websocket.send_json({"event": "error", "message": "Auth token required"})
+            await websocket.close()
+            return
+
+        user = verify_jwt_token(token)
+        if not user:
+            await websocket.send_json({"event": "error", "message": "Session expired or invalid token"})
+            await websocket.close()
+            return
+
+        user_db = get_user_by_username(db, user["sub"])
+        if not user_db:
+            await websocket.send_json({"event": "error", "message": "User profile not found"})
+            await websocket.close()
+            return
+
+        if transactions:
+            build_transaction_graph_edges(transactions, user_db.id, db)
+
+        async for agent_log in run_boardroom_debate_stream(transactions, user_db.id, db):
+            await websocket.send_json(agent_log)
+
+    except WebSocketDisconnect:
+        logger.info("Boardroom WebSocket connection disconnected.")
+    except Exception as e:
+        logger.error(f"WebSocket courtroom error: {e}")
+        try:
+            await websocket.send_json({"event": "error", "message": str(e)})
+        except:
+            pass
 
 if __name__ == "__main__":
     import uvicorn

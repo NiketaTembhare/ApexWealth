@@ -586,7 +586,18 @@ def parse_excel_bytes(file_bytes: bytes) -> List[dict]:
 def parse_text_bytes(file_bytes: bytes) -> List[dict]:
     """Parse raw text bank statement"""
     text = file_bytes.decode("utf-8-sig", errors="replace")
-    return _parse_text_lines(text)
+    transactions = _parse_text_lines(text)
+    
+    # Fallback to LLM if regex fails (e.g., unstructured pasted text)
+    if not transactions:
+        try:
+            from services.multimodal import parse_financial_text
+            extracted = parse_financial_text(text)
+            transactions = extracted.get("transactions", [])
+        except Exception as e:
+            logger.error(f"Fallback LLM parsing failed: {e}")
+            
+    return transactions
 
 
 # ────────────────────────────────────────────
@@ -634,22 +645,33 @@ def parse_document(file_bytes: bytes, filename: str, content_type: str = "") -> 
     filename_lower = filename.lower()
     transactions = []
 
-    if filename_lower.endswith(".pdf") or "pdf" in content_type:
+    is_image = (
+        filename_lower.endswith((".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".gif")) or
+        "image" in content_type
+    )
+
+    if is_image:
+        from services.multimodal import parse_financial_image
+        extracted = parse_financial_image(file_bytes, filename, content_type or "image/jpeg")
+        transactions = extracted.get("transactions", [])
+        source_type = f"Scanned {extracted.get('document_metadata', {}).get('document_type', 'Image')}"
+    elif filename_lower.endswith(".pdf") or "pdf" in content_type:
         transactions = parse_pdf(file_bytes)
         source_type = "PDF"
-    elif filename_lower.endswith(".csv") or "csv" in content_type or "text/plain" in content_type:
+    elif filename_lower.endswith(".csv") or "csv" in content_type:
         transactions = parse_csv_bytes(file_bytes)
         source_type = "CSV"
     elif filename_lower.endswith((".xlsx", ".xls")) or "excel" in content_type or "spreadsheet" in content_type:
         transactions = parse_excel_bytes(file_bytes)
         source_type = "Excel"
-    elif filename_lower.endswith(".txt"):
+    elif filename_lower.endswith(".txt") or "text/plain" in content_type:
         transactions = parse_text_bytes(file_bytes)
         source_type = "Text"
     else:
         # Try CSV as default
         transactions = parse_csv_bytes(file_bytes)
         source_type = "Auto-detected"
+
 
     # Post-processing
     recurring = detect_recurring_payments(transactions)

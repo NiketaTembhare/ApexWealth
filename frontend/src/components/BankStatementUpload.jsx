@@ -37,6 +37,7 @@ export default function BankStatementUpload({ onDataLoaded }) {
   const [error, setError] = useState('');
   const [manualText, setManualText] = useState('');
   const [backendAvailable, setBackendAvailable] = useState(true);
+  const [filePreviewUrl, setFilePreviewUrl] = useState(null);
 
   // ── Animate AI states ──────────────────────
   const runAIAnimation = (callback) => {
@@ -55,8 +56,13 @@ export default function BankStatementUpload({ onDataLoaded }) {
 
   // ── Process result from backend ──────────────
   const handleResult = (result) => {
+    if (!result.transactions || result.transactions.length === 0) {
+      setError(result.document_metadata?.error || 'Failed to extract any transactions. Please ensure you uploaded a valid document or image.');
+      setStep(0);
+      return;
+    }
     setParsed(result);
-    setTransactions(result.transactions || []);
+    setTransactions(result.transactions);
     setStep(2);
   };
 
@@ -65,10 +71,16 @@ export default function BankStatementUpload({ onDataLoaded }) {
     if (!file) return;
     setError('');
     const ext = file.name.split('.').pop().toLowerCase();
-    const supported = ['pdf','csv','xlsx','xls','txt'];
+    const supported = ['pdf','csv','xlsx','xls','txt','png','jpg','jpeg','tiff','bmp'];
     if (!supported.includes(ext)) {
-      setError(`Unsupported format ".${ext}". Use: PDF, CSV, XLSX, XLS, TXT`);
+      setError(`Unsupported format ".${ext}". Use: PDF, CSV, XLSX, XLS, TXT, PNG, JPG, JPEG, TIFF, BMP`);
       return;
+    }
+
+    if (['png','jpg','jpeg','tiff','bmp'].includes(ext)) {
+      setFilePreviewUrl(URL.createObjectURL(file));
+    } else {
+      setFilePreviewUrl(null);
     }
 
     runAIAnimation(async () => {
@@ -78,6 +90,13 @@ export default function BankStatementUpload({ onDataLoaded }) {
         handleResult(result);
         setBackendAvailable(true);
       } catch (e) {
+        if (e.message && e.message.toLowerCase().includes('authentication')) {
+          localStorage.removeItem('apex_token');
+          localStorage.removeItem('apex_user');
+          window.location.reload();
+          return;
+        }
+        
         // Fallback: client-side for CSV/Excel only
         if (ext === 'csv') {
           const text = await file.text();
@@ -152,8 +171,8 @@ export default function BankStatementUpload({ onDataLoaded }) {
     runAIAnimation(async () => {
       try {
         // Try to parse as CSV via backend
-        const blob = new Blob([manualText], { type: 'text/plain' });
-        const file = new File([blob], 'manual.txt', { type: 'text/plain' });
+        const blob = new Blob([manualText], { type: 'text/csv' });
+        const file = new File([blob], 'manual.csv', { type: 'text/csv' });
         const result = await uploadStatement(file);
         handleResult(result);
       } catch {
@@ -244,14 +263,14 @@ export default function BankStatementUpload({ onDataLoaded }) {
               onDrop={e => { e.preventDefault(); setDragOver(false); handleFile(e.dataTransfer.files[0]); }}
               onClick={() => document.getElementById('stmt-input').click()}
             >
-              <input id="stmt-input" type="file" accept=".pdf,.csv,.xlsx,.xls,.txt" className="hidden"
+              <input id="stmt-input" type="file" accept=".pdf,.csv,.xlsx,.xls,.txt,.png,.jpg,.jpeg,.tiff,.bmp" className="hidden"
                 onChange={e => handleFile(e.target.files[0])} />
               <div className={`p-5 rounded-full mb-4 transition ${dragOver ? 'bg-cyan-500/20' : 'bg-bank-card/60'}`}>
                 <Upload className={`w-10 h-10 ${dragOver ? 'text-cyan-400' : 'text-bank-textMuted'}`} />
               </div>
-              <p className="text-base font-bold text-bank-textActive">Drag & Drop your bank statement</p>
+              <p className="text-base font-bold text-bank-textActive">Drag & Drop your bank statement or image</p>
               <div className="flex gap-2 mt-4 flex-wrap justify-center">
-                {['PDF','CSV','XLSX','XLS','TXT'].map(f => (
+                {['PDF','CSV','XLSX','TXT','SCANS/IMAGES'].map(f => (
                   <span key={f} className="px-3 py-1 bg-bank-bg border border-bank-cardBorder text-xs text-cyan-400 font-bold rounded-full">{f}</span>
                 ))}
               </div>
@@ -339,56 +358,117 @@ export default function BankStatementUpload({ onDataLoaded }) {
             </div>
           )}
 
-          {/* Table */}
-          <div className="glass-panel overflow-hidden">
-            <div className="p-4 border-b border-bank-cardBorder flex items-center justify-between">
-              <h4 className="text-sm font-bold text-bank-textActive">Extracted Transactions — Click category to edit</h4>
-              <span className="text-xs text-bank-textMuted">{transactions.length} rows</span>
+          {/* Table & Preview Layout */}
+          {filePreviewUrl ? (
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+              <div className="lg:col-span-1 glass-panel p-4 flex flex-col items-center justify-start bg-bank-card/60">
+                <p className="text-[10px] text-bank-textMuted font-bold uppercase tracking-wider mb-3">Scanned Document Preview</p>
+                <div className="border border-bank-cardBorder rounded-xl overflow-hidden max-h-[350px] w-full flex items-center justify-center bg-bank-bg/50 p-2">
+                  <img src={filePreviewUrl} alt="Uploaded statement/receipt" className="max-h-[320px] max-w-full object-contain rounded-lg" />
+                </div>
+              </div>
+              
+              <div className="lg:col-span-3 glass-panel overflow-hidden">
+                <div className="p-4 border-b border-bank-cardBorder flex items-center justify-between">
+                  <h4 className="text-sm font-bold text-bank-textActive">Extracted Transactions — Click category to edit</h4>
+                  <span className="text-xs text-bank-textMuted">{transactions.length} rows</span>
+                </div>
+                <div className="overflow-x-auto max-h-[380px] overflow-y-auto scrollbar-thin">
+                  <table className="w-full text-xs">
+                    <thead className="sticky top-0 bg-bank-card/95 border-b border-bank-cardBorder">
+                      <tr>
+                        {['Date','Description','Category','Amount','Type','Confidence'].map(h => (
+                          <th key={h} className="px-4 py-3 text-left font-bold text-bank-textMuted uppercase tracking-wider">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {transactions.map((t, i) => (
+                        <tr key={i} className="border-b border-bank-cardBorder/20 hover:bg-bank-card/30 transition">
+                          <td className="px-4 py-2.5 font-mono text-bank-textMuted">{t.date}</td>
+                          <td className="px-4 py-2.5 text-bank-textActive max-w-[180px]">
+                            <div className="truncate">{t.description}</div>
+                            {t.recurring && <span className="text-[9px] text-purple-400 font-bold uppercase">● Recurring</span>}
+                          </td>
+                          <td className="px-4 py-2.5">
+                            {editIdx === i ? (
+                              <select autoFocus defaultValue={t.category}
+                                onChange={e => updateCategory(i, e.target.value)}
+                                onBlur={() => setEditIdx(null)}
+                                className="bg-bank-bg border border-cyan-500/40 text-cyan-400 rounded-lg px-2 py-1 text-[10px] outline-none">
+                                {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                              </select>
+                            ) : (
+                              <button onClick={() => setEditIdx(i)}
+                                className="flex items-center gap-1 px-2 py-1 bg-bank-bg border border-bank-cardBorder rounded-lg hover:border-cyan-500/40 hover:text-cyan-400 transition group">
+                                <span>{t.category}</span>
+                                <Edit2 className="w-2.5 h-2.5 opacity-0 group-hover:opacity-100 transition" />
+                              </button>
+                            )}
+                          </td>
+                          <td className="px-4 py-2.5 font-bold text-bank-textActive">₹{t.amount?.toLocaleString('en-IN')}</td>
+                          <td className={`px-4 py-2.5 font-bold ${t.type === 'Credit' ? 'text-emerald-400' : 'text-rose-400'}`}>{t.type}</td>
+                          <td className={`px-4 py-2.5 font-bold ${CONFIDENCE_COLOR(t.confidence||0)}`}>
+                            {t.confidence||0}%
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
-            <div className="overflow-x-auto max-h-[380px] overflow-y-auto scrollbar-thin">
-              <table className="w-full text-xs">
-                <thead className="sticky top-0 bg-bank-card/95 border-b border-bank-cardBorder">
-                  <tr>
-                    {['Date','Description','Category','Amount','Type','Confidence'].map(h => (
-                      <th key={h} className="px-4 py-3 text-left font-bold text-bank-textMuted uppercase tracking-wider">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {transactions.map((t, i) => (
-                    <tr key={i} className="border-b border-bank-cardBorder/20 hover:bg-bank-card/30 transition">
-                      <td className="px-4 py-2.5 font-mono text-bank-textMuted">{t.date}</td>
-                      <td className="px-4 py-2.5 text-bank-textActive max-w-[180px]">
-                        <div className="truncate">{t.description}</div>
-                        {t.recurring && <span className="text-[9px] text-purple-400 font-bold uppercase">● Recurring</span>}
-                      </td>
-                      <td className="px-4 py-2.5">
-                        {editIdx === i ? (
-                          <select autoFocus defaultValue={t.category}
-                            onChange={e => updateCategory(i, e.target.value)}
-                            onBlur={() => setEditIdx(null)}
-                            className="bg-bank-bg border border-cyan-500/40 text-cyan-400 rounded-lg px-2 py-1 text-[10px] outline-none">
-                            {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                          </select>
-                        ) : (
-                          <button onClick={() => setEditIdx(i)}
-                            className="flex items-center gap-1 px-2 py-1 bg-bank-bg border border-bank-cardBorder rounded-lg hover:border-cyan-500/40 hover:text-cyan-400 transition group">
-                            <span>{t.category}</span>
-                            <Edit2 className="w-2.5 h-2.5 opacity-0 group-hover:opacity-100 transition" />
-                          </button>
-                        )}
-                      </td>
-                      <td className="px-4 py-2.5 font-bold text-bank-textActive">₹{t.amount?.toLocaleString('en-IN')}</td>
-                      <td className={`px-4 py-2.5 font-bold ${t.type === 'Credit' ? 'text-emerald-400' : 'text-rose-400'}`}>{t.type}</td>
-                      <td className={`px-4 py-2.5 font-bold ${CONFIDENCE_COLOR(t.confidence||0)}`}>
-                        {t.confidence||0}%
-                      </td>
+          ) : (
+            <div className="glass-panel overflow-hidden">
+              <div className="p-4 border-b border-bank-cardBorder flex items-center justify-between">
+                <h4 className="text-sm font-bold text-bank-textActive">Extracted Transactions — Click category to edit</h4>
+                <span className="text-xs text-bank-textMuted">{transactions.length} rows</span>
+              </div>
+              <div className="overflow-x-auto max-h-[380px] overflow-y-auto scrollbar-thin">
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-bank-card/95 border-b border-bank-cardBorder">
+                    <tr>
+                      {['Date','Description','Category','Amount','Type','Confidence'].map(h => (
+                        <th key={h} className="px-4 py-3 text-left font-bold text-bank-textMuted uppercase tracking-wider">{h}</th>
+                      ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {transactions.map((t, i) => (
+                      <tr key={i} className="border-b border-bank-cardBorder/20 hover:bg-bank-card/30 transition">
+                        <td className="px-4 py-2.5 font-mono text-bank-textMuted">{t.date}</td>
+                        <td className="px-4 py-2.5 text-bank-textActive max-w-[180px]">
+                          <div className="truncate">{t.description}</div>
+                          {t.recurring && <span className="text-[9px] text-purple-400 font-bold uppercase">● Recurring</span>}
+                        </td>
+                        <td className="px-4 py-2.5">
+                          {editIdx === i ? (
+                            <select autoFocus defaultValue={t.category}
+                              onChange={e => updateCategory(i, e.target.value)}
+                              onBlur={() => setEditIdx(null)}
+                              className="bg-bank-bg border border-cyan-500/40 text-cyan-400 rounded-lg px-2 py-1 text-[10px] outline-none">
+                              {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                            </select>
+                          ) : (
+                            <button onClick={() => setEditIdx(i)}
+                              className="flex items-center gap-1 px-2 py-1 bg-bank-bg border border-bank-cardBorder rounded-lg hover:border-cyan-500/40 hover:text-cyan-400 transition group">
+                              <span>{t.category}</span>
+                              <Edit2 className="w-2.5 h-2.5 opacity-0 group-hover:opacity-100 transition" />
+                            </button>
+                          )}
+                        </td>
+                        <td className="px-4 py-2.5 font-bold text-bank-textActive">₹{t.amount?.toLocaleString('en-IN')}</td>
+                        <td className={`px-4 py-2.5 font-bold ${t.type === 'Credit' ? 'text-emerald-400' : 'text-rose-400'}`}>{t.type}</td>
+                        <td className={`px-4 py-2.5 font-bold ${CONFIDENCE_COLOR(t.confidence||0)}`}>
+                          {t.confidence||0}%
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="flex gap-3">
             <button onClick={() => { setStep(0); setError(''); }} className="px-5 py-3 text-sm font-bold border border-bank-cardBorder text-bank-textMuted hover:text-white rounded-xl transition flex items-center gap-2">
