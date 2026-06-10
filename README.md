@@ -1,122 +1,334 @@
-# 💎 ApexWealth - GenAI-Powered Personalized Financial Advisor
+# 🚀 ApexWealth AI – Financial Intelligence Copilot
 
-### 👥 Team Members
-- **Niketa Tembhare**
-- **Vaishnavi Bodele**
-- **Chetan Dongre**
-- **Kunal Wandhare**
-
-ApexWealth is a modern, high-performance web application designed to act as an intelligent, automated financial advisor. By combining a sleek, dark-theme neomorphic React frontend with a high-concurrency FastAPI python backend, ApexWealth leverages Google Gemini-2.5-Flash to construct custom, data-backed budgeting strategies, emergency fund timelines, and diversified investment paths tailored to user habits.
+> Transform financial documents into actionable intelligence using Multimodal AI, Graph RAG, Agentic Reasoning, and Financial Simulations.
 
 ---
 
-## 🌟 Core Features
+## 📖 Overview
 
-- **🔐 Secure Session Authentication**: Fully decoupled JWT-based authentication system storing securely hashed credentials.
-- **🧠 Generative AI Personal Advice Engine**: Integrates with Google Gemini-2.5-Flash via OpenRouter to analyze incomes, expenses, and target timelines, returning custom financial blueprints.
-- **📈 Live SVG Visual Analytics**: Displays expense ratios, cashflow trends, and an interactive **Financial Health Score Gauge** calculated from user metrics.
-- **📁 Universal Bank Statement Parser**: Supports drag-and-drop document upload (PDF, CSV, Excel `.xlsx`/`.xls`, and plain text `.txt`). It automatically parses transactions, auto-categorizes them using keyword-density models, and estimates recurring subscriptions.
-- **💬 Interactive follow-up AI Chatbot**: Conversational interface matching the context of the user's financial advice, allowing point-wise, structured Q&A.
-- **💾 Audit Logs & JSON Storage**: Appends structured advising logs with detailed timestamps to a local history database (`history.json`) for persistence and session recalls.
+**ApexWealth AI** is an AI-powered Financial Intelligence Copilot designed to help users understand, analyze, and optimize their financial life.
 
----
+The platform ingests financial documents such as bank statements, receipts, invoices, spreadsheets, and transaction logs, then leverages **Multimodal AI**, **Graph RAG**, **Agentic AI**, and **Digital Twin Simulations** to generate personalized financial insights and recommendations.
 
-## 🛠️ Tech Stack
-
-### Frontend (UI Layer)
-- **React.js & Vite** — Next-generation frontend tooling for fast development.
-- **Tailwind CSS** — Sleek custom styling, dark-mode gradients, and glassmorphism.
-- **Lucide React** — Premium iconography.
-- **Recharts** — Responsive interactive charts for trendlines and gauges.
-
-### Backend (Server Layer)
-- **FastAPI & Uvicorn** — Asynchronous Python framework with built-in Pydantic data validations.
-- **PyJWT & Hashlib** — Secure user credential storage and session signing.
-- **pdfplumber & openpyxl** — Python libraries for structural table extraction from PDFs and spreadsheets.
-- **Google Generative AI / OpenRouter** — Large Language Model integration for structured JSON generation.
+Instead of acting as a simple expense tracker, ApexWealth behaves like an intelligent team of financial analysts working collaboratively on behalf of the user.
 
 ---
 
-## 📂 Project Structure
+## 🎯 Problem Statement
+
+Financial data is scattered across:
+
+* Bank statements
+* Salary records
+* Utility bills
+* Shopping transactions
+* Receipts and invoices
+* Investment activities
+
+Most people struggle to:
+
+* Understand spending behavior
+* Identify financial risks
+* Track recurring expenses
+* Plan long-term financial goals
+* Make informed financial decisions
+
+ApexWealth solves this by converting raw financial documents into an intelligent financial decision-support system.
+
+---
+
+# ✨ Key Features
+
+## 📄 Multimodal Financial Document Intelligence
+
+Upload and analyze:
+
+* PDF Statements
+* CSV Files
+* Excel Sheets (XLS/XLSX)
+* TXT Files
+* PNG/JPG/JPEG Receipts
+* TIFF/BMP Scans
+
+The system automatically extracts:
+
+* Transaction Date
+* Merchant Information
+* Transaction Amount
+* Credit/Debit Type
+* Spending Category
+* AI Confidence Score
+
+---
+
+## 🧠 AI Agent Boardroom
+
+ApexWealth introduces a unique **AI Boardroom** where multiple financial AI personas collaboratively analyze user finances.
+
+### Conservative Wealth Manager
+
+* Risk reduction
+* Emergency fund planning
+* Capital preservation
+
+### Growth Investor
+
+* Wealth creation strategies
+* SIP recommendations
+* Long-term investments
+
+### Budget Specialist
+
+* Expense optimization
+* Subscription analysis
+* Spending reduction opportunities
+
+### Judge Agent
+
+* Evaluates all recommendations
+* Generates final verdict and confidence score
+
+---
+
+## 🕸️ Graph RAG Financial Intelligence
+
+Unlike traditional dashboards, ApexWealth builds a Financial Knowledge Graph.
+
+### Nodes
+
+* Users
+* Merchants
+* Categories
+* Financial Events
+
+### Relationships
+
+* Spending
+* Income
+* Transfers
+* Financial Behaviors
+
+This enables:
+
+* Pattern discovery
+* Relationship analysis
+* Spending clusters
+* Context-aware retrieval
+
+---
+
+## 🔍 Financial Investigation Timeline
+
+ApexWealth automatically generates a forensic timeline highlighting:
+
+* High-value transactions
+* Spending anomalies
+* Risk indicators
+* Compliance alerts
+* Important financial events
+
+Users can investigate financial activity through an intuitive timeline view.
+
+---
+
+## 📊 Digital Twin Simulator
+
+Create a virtual financial twin and test future financial scenarios.
+
+Simulate:
+
+* Income reduction
+* Inflation increases
+* Market downturns
+* Unexpected expenses
+* Additional investments
+
+Instantly visualize how financial decisions affect future outcomes.
+
+---
+
+## 🎲 Monte Carlo Forecasting
+
+The platform runs thousands of simulations to estimate:
+
+* Goal achievement probability
+* Future savings trajectory
+* Financial resilience
+* Risk exposure
+
+Helping users make data-driven financial decisions.
+
+---
+
+## 💬 AI Financial Copilot
+
+Ask natural language questions such as:
+
+* Why are my expenses increasing?
+* Which category affects my savings the most?
+* Can I achieve my financial goal in 12 months?
+* How can I improve my monthly savings?
+
+Responses are generated using contextual reasoning powered by RAG and financial analytics.
+
+---
+
+# 🏗️ System Architecture
 
 ```text
-ApexWealth/
-├── backend/                  # FastAPI Backend Server
-│   ├── data/                 # Local JSON databases (users.json, history.json)
-│   ├── schemas/              # Pydantic data validation schemas
-│   ├── services/             # Auth, document parsing, and Gemini AI connectors
-│   ├── .env.example          # Local backend template variables
-│   ├── main.py               # Main API router and server runner
-│   └── requirements.txt      # Python dependencies
-│
-├── frontend/                 # React Vite Frontend Application
-│   ├── src/                  # React source files
-│   │   ├── components/       # Dashboard widgets, charts, chatbot, and upload forms
-│   │   ├── services/         # Axios API connection client
-│   │   └── App.jsx           # Main layout router
-│   ├── package.json          # Node dependencies
-│   └── tailwind.config.js    # Neomorphic dark-theme tailwind definitions
-│
-├── .gitignore                # Root Git ignore configuration
-├── .env.example              # Root environment template
-└── README.md                 # Project documentation
+User Documents
+      │
+      ▼
+Multimodal Parser
+      │
+      ▼
+Structured Transactions
+      │
+      ├────────► SQLite Persistence
+      │
+      ├────────► Knowledge Graph
+      │
+      ├────────► Graph RAG Engine
+      │
+      ├────────► AI Boardroom
+      │
+      └────────► Digital Twin Simulator
+                      │
+                      ▼
+              Financial Recommendations
 ```
 
 ---
 
-## ⚙️ Quick Start Installation
+# 🛠️ Tech Stack
 
-### 1️⃣ Clone the Repository
-```bash
-git clone <your-repository-url>
-cd ApexWealth
-```
+## Frontend
 
-### 2️⃣ Setup FastAPI Backend
-```bash
-cd backend
+* React.js
+* Vite
+* Tailwind CSS
+* Recharts
+* Cytoscape.js
+* WebSockets
 
-# Create a virtual environment
-python -m venv venv
+## Backend
 
-# Activate the environment
-# On Windows (PowerShell):
-.\venv\Scripts\Activate.ps1
-# On Linux/Mac:
-source venv/bin/activate
+* FastAPI
+* Python
+* SQLAlchemy
+* SQLite
+* Uvicorn
 
-# Install dependencies
-pip install -r requirements.txt
+## AI Layer
 
-# Create your .env file
-cp .env.example .env
-# Edit .env and enter your OPENROUTER_API_KEY
-```
+* Google Gemini
+* OpenRouter
+* Agentic AI Workflows
+* Multimodal Processing
+* Graph RAG
 
-To run the backend server:
-```bash
-python main.py
-```
-*Backend is served at: `http://localhost:8000`*
+## Retrieval Layer
+
+* Qdrant Vector Database
+* Embedding Models
+* Semantic Search
 
 ---
 
-### 3️⃣ Setup React Frontend
-In a new terminal window:
-```bash
-cd frontend
+# 🔄 Workflow
 
-# Install Node dependencies
-npm install
+### Step 1
 
-# Start Vite dev server
-npm run dev
-```
-*Frontend is served at: `http://localhost:3000`*
+Upload a financial document.
+
+### Step 2
+
+AI extracts and categorizes transactions.
+
+### Step 3
+
+Transactions are persisted in SQLite.
+
+### Step 4
+
+Graph relationships are generated.
+
+### Step 5
+
+AI Agents analyze financial behavior.
+
+### Step 6
+
+Digital Twin simulations are executed.
+
+### Step 7
+
+Personalized recommendations are generated.
 
 ---
 
-## 🔮 Demo Prompts to Try in AI Chat
-*   **Budgeting Check**: *"Based on my numbers, my Swiggy and Zomato spending is high. Suggest a 50/30/20 budget modification."*
-*   **Emergency Fund Calculations**: *"What is the exact target amount for a 4-month emergency cushion, and how long does it take me to save at my current savings rate?"*
-*   **Investment Differences**: *"What is the safety difference between putting my savings in a liquid FD vs a mutual fund for my goal timeline?"*
+# 📈 Current Capabilities
+
+✅ Multimodal Document Parsing
+
+✅ Financial Knowledge Graph
+
+✅ Graph RAG Retrieval
+
+✅ AI Agent Boardroom
+
+✅ Digital Twin Simulation
+
+✅ Monte Carlo Forecasting
+
+✅ Persistent Financial History
+
+✅ Interactive Analytics Dashboard
+
+✅ Financial Investigation Timeline
+
+✅ AI Copilot Chat
+
+---
+
+# 🌟 What Makes ApexWealth Different?
+
+Most finance applications answer:
+
+> "What happened?"
+
+ApexWealth answers:
+
+> **Why did it happen?**
+
+and
+
+> **What is likely to happen next?**
+
+By combining Multimodal AI, Graph Intelligence, Agentic Reasoning, and Financial Simulations, ApexWealth evolves beyond a dashboard into a true Financial Intelligence Copilot.
+
+---
+
+# 👥 Team
+
+**Project Name:** ApexWealth AI
+
+**Category:** AI-Powered Financial Intelligence Platform
+
+**Developed By:** Niketa Tembhare
+
+**Hackathon:** AMD AI Hackathon 2026
+---
+
+## Future Scope
+
+* Real-time bank integrations
+* Fraud and anomaly detection
+* Investment portfolio optimization
+* Voice-enabled financial assistant
+* Personalized financial coaching
+* Advanced financial risk analytics
+
+---
+
+⭐ If you found this project interesting, consider giving it a star and supporting the development of intelligent financial decision-support systems.
