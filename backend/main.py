@@ -473,6 +473,11 @@ async def upload_statement(file: UploadFile = File(...), authorization: Optional
             f.write(file_bytes)
 
         user_db = get_user_by_username(db, user["sub"])
+        if not user_db:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User profile not found. Please sign in again."
+            )
 
         doc = Document(
             user_id=user_db.id,
@@ -502,6 +507,9 @@ async def get_user_transactions(authorization: Optional[str] = Header(None), db:
     """Returns persisted transactions or demo data if none exists."""
     user = get_current_user(authorization)
     user_db = get_user_by_username(db, user["sub"])
+    if not user_db:
+        return await get_synthetic_data()
+
     from services.db import Document
 
     latest_doc = db.query(Document).filter(Document.user_id == user_db.id).filter(Document.transactions != None).order_by(Document.uploaded_at.desc()).first()
