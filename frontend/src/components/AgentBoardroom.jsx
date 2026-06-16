@@ -4,7 +4,7 @@ import {
   TrendingUp, CheckCircle, RefreshCw, Send, Radio,
   Database, Zap, BookOpen
 } from 'lucide-react';
-import { checkBackendHealth } from '../services/api';
+import { checkBackendHealth, API_BASE_URL } from '../services/api';
 
 const ICON_MAP = {
   FileText: FileText,
@@ -214,8 +214,17 @@ export default function AgentBoardroom({ transactions, onComplete }) {
     setRunning(true);
 
     const token = localStorage.getItem('apex_token');
-    const wsHost = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
-    const wsUrl = `ws://${wsHost}:8000/ws/boardroom`;
+    
+    let wsUrl;
+    try {
+      const urlObj = new URL(API_BASE_URL);
+      const wsProtocol = urlObj.protocol === 'https:' ? 'wss:' : 'ws:';
+      wsUrl = `${wsProtocol}//${urlObj.host}/ws/boardroom`;
+    } catch (e) {
+      const wsHost = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+      wsUrl = `ws://${wsHost}:8000/ws/boardroom`;
+    }
+    
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 

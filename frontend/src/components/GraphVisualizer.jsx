@@ -2,8 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { Network, RefreshCw, HelpCircle, Info, Database, Zap, ZoomIn, ZoomOut, Move, Unlock } from 'lucide-react';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 
-  (typeof window !== 'undefined' ? `http://${window.location.hostname}:8000` : 'http://localhost:8000');
+import { API_BASE_URL } from '../services/api';
 
 const NODE_COLORS = {
   User: { fill: '#3b82f6', border: '#1d4ed8', text: '#93c5fd' },

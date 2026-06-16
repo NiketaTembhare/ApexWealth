@@ -9,8 +9,7 @@ import {
   DollarSign, Landmark, HelpCircle, Activity, Info, Database, Zap
 } from 'lucide-react';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 
-  (typeof window !== 'undefined' ? `http://${window.location.hostname}:8000` : 'http://localhost:8000');
+import { API_BASE_URL } from '../services/api';
 
 export default function DigitalTwin({ analytics }) {
   const [loading, setLoading] = useState(false);

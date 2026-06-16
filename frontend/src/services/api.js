@@ -1,8 +1,6 @@
 import axios from 'axios';
 
-// Get backend URL from environment variables, fallback to local default
-const API_BASE_URL = import.meta.env.VITE_API_URL || 
-  (typeof window !== 'undefined' ? `http://${window.location.hostname}:8000` : 'http://localhost:8000');
+export const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://skeptic-tipping-hatchling.ngrok-free.dev';
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
