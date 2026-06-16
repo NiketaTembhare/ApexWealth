@@ -2,6 +2,62 @@ import axios from 'axios';
 
 export const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://skeptic-tipping-hatchling.ngrok-free.dev';
 
+// Configure helper to register headers and response interceptors globally
+const registerInstanceConfig = (instance) => {
+  // Add ngrok bypass header to prevent warning pages returning HTML instead of JSON
+  instance.defaults.headers.common['ngrok-skip-browser-warning'] = 'true';
+  
+  instance.interceptors.response.use(
+    (response) => {
+      const url = response.config.url;
+      const status = response.status;
+      const contentType = response.headers['content-type'] || '';
+      
+      let responseText = '';
+      if (response.data) {
+        responseText = typeof response.data === 'object'
+          ? JSON.stringify(response.data).substring(0, 200)
+          : String(response.data).substring(0, 200);
+      }
+      
+      console.log(`[API RESPONSE LOG]
+URL: ${url}
+Status: ${status}
+Content-Type: ${contentType}
+First 200 characters: ${responseText}
+`);
+
+      if (contentType.includes('text/html') || responseText.trim().startsWith('<!DOCTYPE html>') || responseText.trim().startsWith('<html')) {
+        console.warn(`[WARNING] API endpoint returning HTML instead of JSON: ${url}`);
+        throw new Error(`Expected JSON but received HTML warning page from ngrok for URL: ${url}`);
+      }
+      
+      return response;
+    },
+    (error) => {
+      if (error.response) {
+        const url = error.config.url;
+        const status = error.response.status;
+        const contentType = error.response.headers['content-type'] || '';
+        const responseText = typeof error.response.data === 'object'
+          ? JSON.stringify(error.response.data).substring(0, 200)
+          : String(error.response.data).substring(0, 200);
+          
+        console.error(`[API ERROR LOG]
+URL: ${url}
+Status: ${status}
+Content-Type: ${contentType}
+First 200 characters: ${responseText}
+`);
+      }
+      return Promise.reject(error);
+    }
+  );
+};
+
+// Configure the global Axios instance for raw component calls
+registerInstanceConfig(axios);
+
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
   headers: {
@@ -9,6 +65,9 @@ const apiClient = axios.create({
   },
   timeout: 45000, // 45 seconds timeout
 });
+
+// Configure the custom apiClient instance
+registerInstanceConfig(apiClient);
 
 // Request interceptor to automatically inject the Bearer JWT token if available
 apiClient.interceptors.request.use((config) => {
