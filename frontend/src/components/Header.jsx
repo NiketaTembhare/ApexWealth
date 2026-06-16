@@ -3,15 +3,15 @@ import { Landmark, ShieldCheck, RefreshCw, Cpu } from 'lucide-react';
 import { checkBackendHealth } from '../services/api';
 
 export default function Header() {
-  const [status, setStatus] = useState({ online: false, checking: true });
+  const [status, setStatus] = useState({ online: false, checking: true, modelName: '' });
 
   const verifyHealth = async () => {
     setStatus(prev => ({ ...prev, checking: true }));
     const health = await checkBackendHealth();
     if (health.status === 'healthy') {
-      setStatus({ online: true, checking: false });
+      setStatus({ online: true, checking: false, modelName: health.primary_model || '' });
     } else {
-      setStatus({ online: false, checking: false });
+      setStatus({ online: false, checking: false, modelName: '' });
     }
   };
 
@@ -62,7 +62,7 @@ export default function Header() {
             ) : status.online ? (
               <>
                 <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                <span className="text-emerald-400">Gemini Core Active</span>
+                <span className="text-emerald-400">{status.modelName ? `${status.modelName} Active` : 'AI Core Active'}</span>
               </>
             ) : (
               <>

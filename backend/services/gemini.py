@@ -5,8 +5,8 @@ from schemas.advice import FinancialInput, AdviceResponse
 
 # Config-driven: supports local OpenRouter, AMD VM (127.0.0.1:8101/v1), or cloud deployment
 # Set OPENROUTER_BASE_URL in .env to switch endpoints without code changes
-OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
-OPENROUTER_URL = f"{OPENROUTER_BASE_URL}/chat/completions"
+OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL")
+OPENROUTER_URL = f"{OPENROUTER_BASE_URL}/chat/completions" if OPENROUTER_BASE_URL else None
 
 def get_financial_advice(data: FinancialInput) -> AdviceResponse:
     # Fetch API Key
@@ -14,7 +14,7 @@ def get_financial_advice(data: FinancialInput) -> AdviceResponse:
     if not api_key:
         raise ValueError("OPENROUTER_API_KEY environment variable is not set. Please add it to your backend/.env file.")
 
-    model = os.getenv("OPENROUTER_MODEL", os.getenv("PRIMARY_MODEL", "gemini-2.5-flash"))
+    model = os.getenv("OPENROUTER_MODEL") or os.getenv("PRIMARY_MODEL")
 
     # Calculate additional metrics for richer prompting
     total_expenses = (
@@ -190,7 +190,7 @@ def get_chat_response(financial_data: FinancialInput, advice: AdviceResponse, hi
     if not api_key:
         raise ValueError("OPENROUTER_API_KEY environment variable is not set. Please add it to your backend/.env file.")
 
-    model = os.getenv("OPENROUTER_MODEL", os.getenv("PRIMARY_MODEL", "gemini-2.5-flash"))
+    model = os.getenv("OPENROUTER_MODEL") or os.getenv("PRIMARY_MODEL")
 
     # Format the context system prompt
     context_system_prompt = f"""

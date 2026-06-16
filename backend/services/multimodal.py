@@ -7,8 +7,8 @@ from typing import Dict, List, Optional
 
 logger = logging.getLogger("multimodal-service")
 
-OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
-OPENROUTER_URL = f"{OPENROUTER_BASE_URL}/chat/completions"
+OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL")
+OPENROUTER_URL = f"{OPENROUTER_BASE_URL}/chat/completions" if OPENROUTER_BASE_URL else None
 
 def encode_image_to_base64(image_bytes: bytes) -> str:
     """Encodes raw image bytes into a base64 string."""
@@ -23,8 +23,7 @@ def parse_financial_image(image_bytes: bytes, filename: str, mime_type: str) -> 
     if not api_key:
         raise ValueError("OPENROUTER_API_KEY environment variable is not set in backend/.env")
         
-    # Default to Qwen2.5-VL or Gemini 2.5 Flash on OpenRouter
-    model = os.getenv("OPENROUTER_MULTIMODAL_MODEL", "gemini-2.5-flash")
+    model = os.getenv("OPENROUTER_MULTIMODAL_MODEL") or os.getenv("PRIMARY_MODEL")
     
     base64_image = encode_image_to_base64(image_bytes)
     
@@ -159,7 +158,7 @@ def parse_financial_text(text: str) -> Dict:
     if not api_key:
         raise ValueError("OPENROUTER_API_KEY environment variable is not set in backend/.env")
         
-    model = os.getenv("PRIMARY_MODEL", "gemini-2.5-flash")
+    model = os.getenv("PRIMARY_MODEL") or os.getenv("OPENROUTER_MODEL")
     
     prompt = f"""
     You are an expert forensic accountant and financial document analyst.

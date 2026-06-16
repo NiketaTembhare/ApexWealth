@@ -13,3 +13,5 @@ qdrant-client
 networkx
 rank-bm25
 sentence-transformers
+torch
+pytest

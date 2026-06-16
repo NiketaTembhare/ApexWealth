@@ -10,9 +10,8 @@ from services.simulation import run_financial_stress_simulation
 
 logger = logging.getLogger("agent-boardroom")
 
-# Config-driven: set OPENROUTER_BASE_URL in .env for AMD VM deployment (127.0.0.1:8101/v1)
-OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
-OPENROUTER_URL = f"{OPENROUTER_BASE_URL}/chat/completions"
+OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL")
+OPENROUTER_URL = f"{OPENROUTER_BASE_URL}/chat/completions" if OPENROUTER_BASE_URL else None
 
 class BoardroomAgent:
     def __init__(self, name: str, role: str, color: str, icon: str):
@@ -35,7 +34,7 @@ def query_agent_llm(agent_name: str, system_prompt: str, debate_history: List[Di
     import time
     start_time = time.perf_counter()
     api_key = os.getenv("OPENROUTER_API_KEY")
-    model = os.getenv("OPENROUTER_MODEL", os.getenv("PRIMARY_MODEL", "gemini-2.5-flash"))
+    model = os.getenv("OPENROUTER_MODEL") or os.getenv("PRIMARY_MODEL")
     
     telemetry = {
         "message": "I am ready. Let us review the document inputs.",

@@ -4,6 +4,7 @@ import {
   TrendingUp, CheckCircle, RefreshCw, Send, Radio,
   Database, Zap, BookOpen
 } from 'lucide-react';
+import { checkBackendHealth } from '../services/api';
 
 const ICON_MAP = {
   FileText: FileText,
@@ -30,7 +31,6 @@ const BOARDROOM_AGENTS = [
     role: "OCR, document parsing, and transaction structure validator", 
     color: "blue", 
     icon: "FileText",
-    engine: "Apex OCR & PDF Parser",
     inputs: "Uploaded Bank Statement PDF / CSV / Images",
     outputs: "Structured transaction JSON array (Date, Description, Amount, Category, Type)",
     details: "This agent validates the document format, extracts text data using OCR engines, parses raw fields, and structures them into clean JSON entries for downstream analysis.",
@@ -42,7 +42,6 @@ const BOARDROOM_AGENTS = [
     color: "amber", 
     icon: "ShieldAlert",
     role: "Detects spending spikes, cash anomalies, and micro-probing transfers",
-    engine: "Gemini 2.5 Flash + Stat Outlier Detector",
     inputs: "Structured transaction list",
     outputs: "Risk level, flagged cash/debit anomalies, velocity alerts",
     details: "Runs statistical analysis on transaction frequencies and ticket sizes. Flags anomalies that deviate significantly from average spending profiles (e.g. 5x above mean).",
@@ -54,7 +53,6 @@ const BOARDROOM_AGENTS = [
     color: "purple", 
     icon: "BookOpen",
     role: "Retrieves regulatory policy circulars and guidelines from local Vector RAG",
-    engine: "ChromaDB Vector Store + Gemini Embeddings",
     inputs: "Anomalous transactions and categories",
     outputs: "Relevant RBI & SEBI circular references and policy guidelines",
     details: "Queries the local vector database of Indian banking regulations (RBI Master Directions on deposits, KYC, PAN thresholds, SEBI investment limits) to retrieve relevant rules.",
@@ -66,7 +64,6 @@ const BOARDROOM_AGENTS = [
     color: "teal", 
     icon: "ClipboardCheck",
     role: "Cross-references transactions against RBI and SEBI limit compliance",
-    engine: "Gemini 2.5 Flash Policy Auditor",
     inputs: "RBI/SEBI retrieved policies + transaction anomalies",
     outputs: "Compliance checklist, audit pass/fail details, disclosures needed",
     details: "Evaluates transactions against the retrieved regulations to verify limits, PAN submission requirements, and compliance violations.",
@@ -78,7 +75,6 @@ const BOARDROOM_AGENTS = [
     color: "pink", 
     icon: "TrendingUp",
     role: "Projects Monte Carlo stress tests and suggests asset allocations",
-    engine: "Apex Monte Carlo Projection Engine",
     inputs: "Current income, expenses, SIP contributions, financial goals",
     outputs: "Goal achievement timelines, growth graphs, asset suggestions",
     details: "Projects wealth growth over 1000 simulated paths under optimistic, median, and pessimistic market conditions. Recommends dynamic asset rebalancing.",
@@ -90,7 +86,6 @@ const BOARDROOM_AGENTS = [
     color: "emerald", 
     icon: "CheckCircle",
     role: "Synthesizes agent insights, computes confidence ratings, and drafts verdict",
-    engine: "Gemini 2.5 Flash Consensus Engine",
     inputs: "Reports from Document, Risk, Research, Compliance, and Strategy agents",
     outputs: "Final Case Verdict, confidence rating (0-100), compiled timeline",
     details: "The coordinator agent. It resolves conflicts between reports, calculates an aggregated confidence score, compiles a clean chronology, and writes the final audit report.",
@@ -106,6 +101,40 @@ export default function AgentBoardroom({ transactions, onComplete }) {
   const [isDemo, setIsDemo] = useState(false); // track if synthetic fallback was used
   const [autoScroll, setAutoScroll] = useState(true);
   const [selectedAgentInfo, setSelectedAgentInfo] = useState(null);
+  const [modelName, setModelName] = useState('Qwen3-30B-A3B');
+
+  useEffect(() => {
+    const fetchHealth = async () => {
+      try {
+        const health = await checkBackendHealth();
+        if (health && health.primary_model) {
+          setModelName(health.primary_model);
+        }
+      } catch (e) {
+        console.error("Health check failed", e);
+      }
+    };
+    fetchHealth();
+  }, []);
+
+  const getAgentEngineLabel = (agentId, activeModel) => {
+    switch (agentId) {
+      case 'document':
+        return "Apex OCR & PDF Parser";
+      case 'risk':
+        return `${activeModel} + Stat Outlier Detector`;
+      case 'research':
+        return "Qdrant Vector Store + Local Embeddings";
+      case 'compliance':
+        return `${activeModel} Policy Auditor`;
+      case 'strategy':
+        return "Apex Monte Carlo Projection Engine";
+      case 'judge':
+        return `${activeModel} Consensus Engine`;
+      default:
+        return "AI Engine";
+    }
+  };
   
   const wsRef = useRef(null);
   const chatContainerRef = useRef(null);
@@ -470,7 +499,7 @@ export default function AgentBoardroom({ transactions, onComplete }) {
               </div>
               
               <h5 className="text-[10px] font-bold text-bank-textActive">{agent.name}</h5>
-              <span className="text-[7.5px] text-cyan-400/80 font-mono tracking-tight mt-0.5">{agent.engine}</span>
+              <span className="text-[7.5px] text-cyan-400/80 font-mono tracking-tight mt-0.5">{getAgentEngineLabel(agent.id, modelName)}</span>
               
               <p className="text-[8px] text-bank-textMuted mt-1 leading-tight line-clamp-2 min-h-[20px]">
                 {agent.role}
@@ -590,7 +619,7 @@ export default function AgentBoardroom({ transactions, onComplete }) {
                 </div>
                 <div>
                   <h4 className="text-sm font-bold text-bank-textActive">{selectedAgentInfo.name}</h4>
-                  <p className="text-[9px] text-cyan-400 font-mono">Engine: {selectedAgentInfo.engine}</p>
+                  <p className="text-[9px] text-cyan-400 font-mono">Engine: {getAgentEngineLabel(selectedAgentInfo.id, modelName)}</p>
                 </div>
               </div>
               <button 

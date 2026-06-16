@@ -467,7 +467,7 @@ export default function FinancialForm({ onSubmit, initialValues, suggestedProfil
               <Zap className="w-4 h-4" /> Actions & Compilation
             </h3>
             <p className="text-[10px] text-bank-textMuted mt-2 leading-relaxed">
-              Verify values and trigger Gemini intelligence to compile budget and portfolio suggestions.
+              Verify values and trigger AI intelligence to compile budget and portfolio suggestions.
             </p>
           </div>
 

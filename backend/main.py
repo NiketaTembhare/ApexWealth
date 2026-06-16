@@ -128,7 +128,8 @@ def health_check():
     api_key_configured = bool(os.getenv("OPENROUTER_API_KEY"))
     return {
         "status": "healthy",
-        "gemini_api_configured": api_key_configured
+        "gemini_api_configured": api_key_configured,
+        "primary_model": os.getenv("PRIMARY_MODEL") or os.getenv("OPENROUTER_MODEL") or "Qwen3-30B-A3B"
     }
 
 # ==================== AUTHENTICATION ENDPOINTS ====================
@@ -325,6 +326,7 @@ def populate_sample_history(authorization: Optional[str] = Header(None), db: Ses
     )
     db.add(sample_sim)
     
+    primary_model = os.getenv("PRIMARY_MODEL") or os.getenv("OPENROUTER_MODEL") or "Qwen3-30B-A3B"
     # 3. Add a boardroom debate session (5 deliberations)
     analysis_session_id = "session_sample_3f8a9e"
     agents_delibs = [
@@ -348,7 +350,7 @@ def populate_sample_history(authorization: Optional[str] = Header(None), db: Ses
             agent_name="Risk & Fraud Agent",
             role="Detects spending spikes, cash anomalies, and micro-probing transfers",
             message="No active fraudulent transactions detected. Discretionary spending velocity is high (average ticket size: ₹1,850). Recommend setting a daily debit cap.",
-            model_name="gemini-2.5-flash-lite",
+            model_name=primary_model,
             prompt_tokens=1024,
             completion_tokens=85,
             total_tokens=1109,
@@ -362,7 +364,7 @@ def populate_sample_history(authorization: Optional[str] = Header(None), db: Ses
             agent_name="Compliance Agent",
             role="Cross-references activity against regulatory RBI and SEBI limits",
             message="All ledger transfers conform to SEBI/RBI circular guidelines. Tax deducted at source (TDS) entries are verified. No compliance flags raised.",
-            model_name="gemini-2.5-flash-lite",
+            model_name=primary_model,
             prompt_tokens=1250,
             completion_tokens=70,
             total_tokens=1320,
@@ -376,7 +378,7 @@ def populate_sample_history(authorization: Optional[str] = Header(None), db: Ses
             agent_name="Simulation & Strategy",
             role="Runs stress tests, Monte Carlo paths, and asset allocation advice",
             message="Allocating 60% of surplus to index equity funds will accelerate goal achievement. Recommending a baseline emergency fund buffer of ₹1.2 Lakhs.",
-            model_name="gemini-2.5-flash-lite",
+            model_name=primary_model,
             prompt_tokens=1480,
             completion_tokens=95,
             total_tokens=1575,
@@ -390,7 +392,7 @@ def populate_sample_history(authorization: Optional[str] = Header(None), db: Ses
             agent_name="Judge Agent",
             role="Aggregates findings, resolves disputes, calculates confidence, and writes final case file",
             message="Final Verdict: Portfolio is stable. Raise monthly savings allocations. Compliance status: CLEAR. Confidence rating: 96%. File closed.",
-            model_name="gemini-2.5-flash-lite",
+            model_name=primary_model,
             prompt_tokens=1650,
             completion_tokens=120,
             total_tokens=1770,
