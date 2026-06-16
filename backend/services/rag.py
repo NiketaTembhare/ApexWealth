@@ -124,12 +124,9 @@ def add_document_chunks(chunks: List[Dict]):
     texts = [c["text"] for c in chunks]
     embeddings = model.encode(texts)
     
-    # Query current count to auto-increment IDs
-    scroll_res = client.scroll(collection_name=COLLECTION_NAME, limit=1)
-    current_max_id = len(client.scroll(collection_name=COLLECTION_NAME, limit=10000)[0])
-    
-    for i, (chunk, vector) in enumerate(zip(chunks, embeddings)):
-        point_id = current_max_id + i + 1
+    import uuid
+    for chunk, vector in zip(chunks, embeddings):
+        point_id = str(uuid.uuid4())
         points.append(
             PointStruct(
                 id=point_id,

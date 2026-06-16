@@ -15,11 +15,12 @@ import GraphVisualizer from './components/GraphVisualizer';
 import DetectiveTimeline from './components/DetectiveTimeline';
 import AgentBoardroom from './components/AgentBoardroom';
 import HistoryView from './components/HistoryView';
+import GpuMonitor from './components/GpuMonitor';
 import { generateAdvice, logoutUser, getTransactions } from './services/api';
 import { analyzeTransactions, extractFinancialProfile } from './utils/syntheticData';
 import {
   Sparkles, X, LogOut, User, Upload, BarChart2, Brain, Home,
-  ArrowRight, ChevronLeft, Database, Network, Sliders
+  ArrowRight, ChevronLeft, Database, Network, Sliders, Cpu
 } from 'lucide-react';
 
 const NAV_ITEMS = [
@@ -29,6 +30,7 @@ const NAV_ITEMS = [
   { id: 'simulation', label: 'Digital Twin', icon: Sliders },
   { id: 'graph', label: 'Knowledge Graph', icon: Network },
   { id: 'history', label: 'History', icon: Database },
+  { id: 'gpumonitor', label: 'GPU Monitor', icon: Cpu },
   { id: 'advisor', label: 'AI Advisor', icon: Sparkles },
 ];
 
@@ -265,6 +267,9 @@ export default function App() {
       case 'history':
         return <HistoryView />;
 
+      case 'gpumonitor':
+        return <GpuMonitor />;
+
       default:
         return null;
     }
@@ -277,7 +282,7 @@ export default function App() {
       <div className="flex flex-1 relative">
 
         {/* Sidebar */}
-        <aside className={`${sidebarOpen ? 'w-56' : 'w-16'} transition-all duration-300 flex-shrink-0 bg-bank-card/50 border-r border-bank-cardBorder backdrop-blur-md flex flex-col z-20 sticky top-0 h-screen`}>
+        <aside className={`${sidebarOpen ? 'w-56' : 'w-16'} transition-all duration-300 flex-shrink-0 bg-bank-card/50 border-r border-bank-cardBorder backdrop-blur-md flex flex-col z-20 sticky top-20 h-[calc(100vh-5rem)]`}>
 
           {/* Sidebar toggle */}
           <div className="flex items-center justify-between p-4 border-b border-bank-cardBorder/60">
@@ -296,7 +301,7 @@ export default function App() {
           </div>
 
           {/* Nav items */}
-          <nav className="flex-1 p-3 space-y-1">
+          <nav className="flex-1 p-3 space-y-1 overflow-y-auto scrollbar-thin">
             {NAV_ITEMS.map(item => {
               const Icon = item.icon;
               const isActive = activeNav === item.id;

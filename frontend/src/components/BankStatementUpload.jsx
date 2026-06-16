@@ -114,6 +114,75 @@ export default function BankStatementUpload({ onDataLoaded }) {
     });
   }, []);
 
+  // ── Helper to extract transaction fields robustly ──
+  const extractRowData = (row, source) => {
+    const normRow = {};
+    Object.keys(row).forEach(k => {
+      if (k) normRow[k.trim().toLowerCase()] = String(row[k] === null || row[k] === undefined ? '' : row[k]).trim();
+    });
+
+    let dateVal = '';
+    const dateKey = Object.keys(normRow).find(k => k.includes('date'));
+    if (dateKey) dateVal = normRow[dateKey];
+
+    let descVal = '';
+    const descKey = Object.keys(normRow).find(k => k.includes('desc') || k.includes('narration') || k.includes('particular') || k.includes('remark'));
+    if (descKey) descVal = normRow[descKey];
+    if (!descVal) {
+      const keys = Object.keys(normRow);
+      descVal = keys.length > 1 ? normRow[keys[1]] : '';
+    }
+
+    let amountVal = 0;
+    let typeVal = 'Debit';
+
+    const debitKey = Object.keys(normRow).find(k => k.includes('debit') || k.includes('withdrawal'));
+    const creditKey = Object.keys(normRow).find(k => k.includes('credit') || k.includes('deposit'));
+
+    if (debitKey || creditKey) {
+      const cleanAmt = (val) => parseFloat(val.replace(/[^\d.-]/g, '')) || 0;
+      const dv = cleanAmt(normRow[debitKey] || '');
+      const cv = cleanAmt(normRow[creditKey] || '');
+      if (cv > 0) {
+        amountVal = cv;
+        typeVal = 'Credit';
+      } else if (dv > 0) {
+        amountVal = dv;
+        typeVal = 'Debit';
+      }
+    }
+
+    if (amountVal === 0) {
+      const amtKey = Object.keys(normRow).find(k => k.includes('amount') && !k.includes('balance'));
+      if (amtKey) amountVal = parseFloat(normRow[amtKey].replace(/[^\d.-]/g, '')) || 0;
+
+      const typeKey = Object.keys(normRow).find(k => k.includes('type') || k.includes('dr/cr'));
+      if (typeKey) {
+        const rawType = normRow[typeKey].toLowerCase();
+        typeVal = (rawType.includes('cr') || rawType.includes('credit')) ? 'Credit' : 'Debit';
+      } else {
+        const descLower = descVal.toLowerCase();
+        if (descLower.includes('salary') || descLower.includes('sal cr') || descLower.includes('credit by') || descLower.includes('received from') || descLower.includes('refund')) {
+          typeVal = 'Credit';
+        }
+      }
+    }
+
+    const categoryKey = Object.keys(normRow).find(k => k.includes('category') || k.includes('group'));
+    const categoryVal = categoryKey ? normRow[categoryKey] : 'Uncategorized';
+
+    return {
+      date: dateVal,
+      description: descVal,
+      category: categoryVal || 'Uncategorized',
+      amount: amountVal,
+      type: typeVal,
+      confidence: 80,
+      recurring: false,
+      source: source,
+    };
+  };
+
   // ── Client-side CSV fallback ─────────────────
   const clientParseCSV = (text) => {
     const result = Papa.parse(text.trim(), {
@@ -121,16 +190,7 @@ export default function BankStatementUpload({ onDataLoaded }) {
       transformHeader: h => h.trim(),
       transform: v => v.trim(),
     });
-    const txns = (result.data || []).map(r => ({
-      date: r.Date || r.date || '',
-      description: r.Description || r.Narration || r.description || '',
-      category: r.Category || r.category || 'Uncategorized',
-      amount: parseFloat(r.Amount || r.amount || 0),
-      type: r.Type || r.type || 'Debit',
-      confidence: 80,
-      recurring: false,
-      source: 'csv',
-    })).filter(t => t.amount > 0 && t.description);
+    const txns = (result.data || []).map(r => extractRowData(r, 'csv')).filter(t => t.amount > 0 && t.description);
     handleResult({ transactions: txns, total_count: txns.length, source_type: 'CSV (client)', avg_confidence: 80, parse_warnings: [], recurring_payments: [] });
   };
 
@@ -139,14 +199,7 @@ export default function BankStatementUpload({ onDataLoaded }) {
     const wb = XLSX.read(buf, { type: 'array' });
     const ws = wb.Sheets[wb.SheetNames[0]];
     const data = XLSX.utils.sheet_to_json(ws, { defval: '' });
-    const txns = data.map(r => ({
-      date: String(r.Date || r.date || ''),
-      description: String(r.Description || r.Narration || r.description || ''),
-      category: String(r.Category || r.category || 'Uncategorized'),
-      amount: parseFloat(r.Amount || r.amount || 0),
-      type: String(r.Type || r.type || 'Debit'),
-      confidence: 80, recurring: false, source: 'excel',
-    })).filter(t => t.amount > 0 && t.description);
+    const txns = data.map(r => extractRowData(r, 'excel')).filter(t => t.amount > 0 && t.description);
     handleResult({ transactions: txns, total_count: txns.length, source_type: 'Excel (client)', avg_confidence: 80, parse_warnings: [], recurring_payments: [] });
   };
 
@@ -170,12 +223,12 @@ export default function BankStatementUpload({ onDataLoaded }) {
     if (!manualText.trim()) return;
     runAIAnimation(async () => {
       try {
-        // Try to parse as CSV via backend
-        const blob = new Blob([manualText], { type: 'text/csv' });
-        const file = new File([blob], 'manual.csv', { type: 'text/csv' });
+        // Send as txt to allow text-based LLM or tabular fallback parsing on backend
+        const blob = new Blob([manualText], { type: 'text/plain' });
+        const file = new File([blob], 'manual.txt', { type: 'text/plain' });
         const result = await uploadStatement(file);
         handleResult(result);
-      } catch {
+      } catch (e) {
         clientParseCSV(manualText);
       }
     });

@@ -99,17 +99,42 @@ def get_graph_elements_payload(user_id: int, db: Session) -> Dict:
     node_map["rule_rbi_50k_pan"] = {"label": "RBI INR 50k PAN Limit", "type": "ComplianceRule"}
     node_map["rule_savings_efficiency"] = {"label": "Budget Savings Rules", "type": "ComplianceRule"}
     
+    # Fetch user transactions to enrich labels
+    from services.db import Document
+    latest_doc = db.query(Document).filter(Document.user_id == user_id).filter(Document.transactions != None).order_by(Document.uploaded_at.desc()).first()
+    
+    tx_labels = {}
+    if latest_doc and latest_doc.transactions:
+        try:
+            txns = json.loads(latest_doc.transactions)
+            for idx, tx in enumerate(txns):
+                tx_id = f"tx_{tx.get('date', '00')}_{idx}"
+                desc = tx.get("description", "Transaction").strip()
+                desc_clean = desc.split()[0].split('-')[0].split('#')[0].strip()
+                if len(desc_clean) < 3:
+                    desc_clean = desc
+                amount = tx.get("amount", 0.0)
+                tx_labels[tx_id] = f"{desc_clean}: ₹{amount:,.0f}"
+        except Exception as e:
+            logger.error(f"Error parsing document transactions for graph labels: {e}")
+
     for edge in edges_db:
         # Add source node
         src_id = edge.source_id
         if src_id not in node_map:
-            label = src_id.replace("tx_", "TX: ").replace("vendor_", "").title()
+            if edge.source_type == "Transaction" and src_id in tx_labels:
+                label = tx_labels[src_id]
+            else:
+                label = src_id.replace("tx_", "TX: ").replace("vendor_", "").title()
             node_map[src_id] = {"label": label, "type": edge.source_type}
             
         # Add target node
         tgt_id = edge.target_id
         if tgt_id not in node_map:
-            label = tgt_id.replace("tx_", "TX: ").replace("vendor_", "").title()
+            if edge.target_type == "Transaction" and tgt_id in tx_labels:
+                label = tx_labels[tgt_id]
+            else:
+                label = tgt_id.replace("tx_", "TX: ").replace("vendor_", "").title()
             node_map[tgt_id] = {"label": label, "type": edge.target_type}
             
         G.add_edge(src_id, tgt_id, relation=edge.relation_type)

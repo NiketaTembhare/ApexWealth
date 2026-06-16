@@ -1,7 +1,8 @@
 import axios from 'axios';
 
 // Get backend URL from environment variables, fallback to local default
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 
+  (typeof window !== 'undefined' ? `http://${window.location.hostname}:8000` : 'http://localhost:8000');
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
@@ -116,6 +117,90 @@ export const sendChatMessage = async (chatPayload) => {
 export const getAdviceHistory = async () => {
   try {
     const response = await apiClient.get('/history');
+    return response.data;
+  } catch (error) {
+    handleError(error);
+  }
+};
+
+/**
+ * Fetches past stress simulation records from the backend.
+ */
+export const getSimulationHistory = async () => {
+  try {
+    const response = await apiClient.get('/simulation/history');
+    return response.data;
+  } catch (error) {
+    handleError(error);
+  }
+};
+
+/**
+ * Fetches list of past boardroom deliberation sessions.
+ */
+export const getBoardroomSessions = async () => {
+  try {
+    const response = await apiClient.get('/agent-observatory/sessions');
+    return response.data;
+  } catch (error) {
+    handleError(error);
+  }
+};
+
+/**
+ * Fetches the details/transcripts for a specific boardroom session.
+ */
+export const getBoardroomSessionDetails = async (sessionId) => {
+  try {
+    const response = await apiClient.get(`/agent-observatory/${sessionId}`);
+    return response.data;
+  } catch (error) {
+    handleError(error);
+  }
+};
+
+/**
+ * Invokes the backend generator to populate sample reports, stress simulations, and debate sessions.
+ */
+export const populateSampleHistory = async () => {
+  try {
+    const response = await apiClient.post('/history/populate-samples');
+    return response.data;
+  } catch (error) {
+    handleError(error);
+  }
+};
+
+/**
+ * Deletes a historical advice report.
+ */
+export const deleteAdviceReport = async (reportId) => {
+  try {
+    const response = await apiClient.delete(`/history/${reportId}`);
+    return response.data;
+  } catch (error) {
+    handleError(error);
+  }
+};
+
+/**
+ * Deletes a historical simulation log.
+ */
+export const deleteSimulation = async (simulationId) => {
+  try {
+    const response = await apiClient.delete(`/simulation/${simulationId}`);
+    return response.data;
+  } catch (error) {
+    handleError(error);
+  }
+};
+
+/**
+ * Deletes an entire boardroom courtroom debate session.
+ */
+export const deleteObservatorySession = async (sessionId) => {
+  try {
+    const response = await apiClient.delete(`/agent-observatory/${sessionId}`);
     return response.data;
   } catch (error) {
     handleError(error);

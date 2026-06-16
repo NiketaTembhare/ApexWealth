@@ -14,6 +14,18 @@ engine = create_engine(
     connect_args={"check_same_thread": False}
 )
 
+# Enable SQLite WAL mode and foreign keys enforcement dynamically
+from sqlalchemy import event
+@event.listens_for(engine, "connect")
+def set_sqlite_pragma(dbapi_connection, connection_record):
+    cursor = dbapi_connection.cursor()
+    try:
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA foreign_keys=ON")
+    except Exception:
+        pass
+    cursor.close()
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
@@ -30,11 +42,36 @@ class User(Base):
     reports = relationship("Report", back_populates="user", cascade="all, delete-orphan")
     simulations = relationship("Simulation", back_populates="user", cascade="all, delete-orphan")
 
+class AgentDeliberation(Base):
+    __tablename__ = "agent_deliberations"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    analysis_session_id = Column(String, nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    document_id = Column(Integer, ForeignKey("documents.id", ondelete="CASCADE"), nullable=True, index=True)
+    agent_name = Column(String, nullable=False, index=True)
+    role = Column(String, nullable=False)
+    message = Column(Text, nullable=False)
+    
+    # Observatory Telemetry Fields
+    model_name = Column(String, nullable=True)
+    prompt_tokens = Column(Integer, default=0)
+    completion_tokens = Column(Integer, default=0)
+    total_tokens = Column(Integer, default=0)
+    execution_time_ms = Column(Integer, default=0)
+    status = Column(String, default="completed")  # "running" | "completed" | "failed"
+    raw_output_json = Column(Text, nullable=True)
+    
+    timestamp = Column(DateTime, default=datetime.datetime.utcnow, index=True)
+    
+    user = relationship("User")
+    document = relationship("Document")
+
 class Document(Base):
     __tablename__ = "documents"
     
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     filename = Column(String, nullable=False)
     file_type = Column(String, nullable=False)
     storage_path = Column(String, nullable=True)
@@ -48,8 +85,8 @@ class Report(Base):
     __tablename__ = "reports"
     
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    document_id = Column(Integer, ForeignKey("documents.id", ondelete="CASCADE"), nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    document_id = Column(Integer, ForeignKey("documents.id", ondelete="CASCADE"), nullable=True, index=True)
     summary = Column(Text, nullable=True)
     reasoning = Column(Text, nullable=True)
     confidence_score = Column(Float, default=100.0)
@@ -65,7 +102,7 @@ class Simulation(Base):
     __tablename__ = "simulations"
     
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     name = Column(String, nullable=False)
     parameters = Column(Text, nullable=False)  # JSON String of input parameters
     results = Column(Text, nullable=False)     # JSON String of projection arrays/metrics
@@ -77,7 +114,7 @@ class GraphEdge(Base):
     __tablename__ = "graph_edges"
     
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     source_id = Column(String, index=True, nullable=False)
     source_type = Column(String, nullable=False)
     target_id = Column(String, index=True, nullable=False)
@@ -104,6 +141,18 @@ def init_db():
     try:
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE reports ADD COLUMN risk_score FLOAT"))
+    except Exception:
+        pass
+
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE agent_deliberations ADD COLUMN analysis_session_id TEXT"))
+    except Exception:
+        pass
+
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE agent_deliberations ADD COLUMN raw_output_json TEXT"))
     except Exception:
         pass
 

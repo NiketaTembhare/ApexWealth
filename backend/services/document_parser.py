@@ -402,71 +402,155 @@ def _parse_text_lines(text: str) -> List[dict]:
 # CSV PARSER
 # ────────────────────────────────────────────
 def parse_csv_bytes(file_bytes: bytes) -> List[dict]:
-    """Parse CSV bank statement"""
+    """Parse CSV, TSV, or WSV/fixed-width bank statement"""
     transactions = []
     try:
         text = file_bytes.decode("utf-8-sig", errors="replace")
-        reader = csv.DictReader(io.StringIO(text))
+        
+        # Strip trailing/leading spaces and split into lines
+        lines = [line.strip() for line in text.split('\n') if line.strip()]
+        if not lines:
+            return []
+            
+        header = lines[0]
+        
+        # Define candidate splitters
+        def split_csv_line(line: str) -> List[str]:
+            try:
+                reader = csv.reader([line])
+                return [c.strip() for c in next(reader)]
+            except Exception:
+                return [c.strip() for c in line.split(',')]
 
-        for row in reader:
-            # Normalize keys
-            row_normalized = {k.strip().lower(): v.strip() for k, v in row.items() if k}
+        # 1. Tab-separated
+        if '\t' in header:
+            cols = [c.strip() for c in header.split('\t')]
+            rows = []
+            for line in lines[1:]:
+                parts = [p.strip() for p in line.split('\t')]
+                rows.append(dict(zip(cols, parts)))
+        # 2. Comma-separated
+        elif ',' in header:
+            cols = split_csv_line(header)
+            rows = []
+            for line in lines[1:]:
+                parts = split_csv_line(line)
+                rows.append(dict(zip(cols, parts)))
+        else:
+            # 3. Space-separated with exact token counts (strict layout)
+            header_words = header.split()
+            all_same_len = True
+            for line in lines[1:]:
+                if len(line.split()) != len(header_words):
+                    all_same_len = False
+                    break
+            if all_same_len and len(header_words) > 1:
+                cols = header_words
+                rows = []
+                for line in lines[1:]:
+                    rows.append(dict(zip(cols, line.split())))
+            else:
+                # 4. Aligned/Fixed-width columns
+                # Split header by 2 or more spaces to find column names
+                cols = [c.strip() for c in re.split(r'\s{2,}', header) if c.strip()]
+                if len(cols) > 1:
+                    slices = []
+                    for i, col in enumerate(cols):
+                        start = header.find(col)
+                        if i > 0:
+                            prev_start = slices[i-1]
+                            start = header.find(col, prev_start + len(cols[i-1]))
+                        slices.append(start)
+                        
+                    ranges = []
+                    for i in range(len(slices)):
+                        start = slices[i]
+                        end = slices[i+1] if i + 1 < len(slices) else None
+                        ranges.append((start, end))
+                        
+                    rows = []
+                    for line in lines[1:]:
+                        row = {}
+                        for col, (start, end) in zip(cols, ranges):
+                            val = line[start:end].strip() if start < len(line) else ""
+                            row[col] = val
+                        rows.append(row)
+                else:
+                    rows = []
 
-            # Find date
+        # Process standard keys
+        for row_normalized in rows:
+            # Normalize keys to lower-case
+            norm_row = {k.strip().lower(): str(v).strip() for k, v in row_normalized.items() if k}
+            
+            # Find Date
             date_val = ""
-            for k in ["date", "txn date", "transaction date", "value date", "posting date"]:
-                if k in row_normalized and row_normalized[k]:
-                    date_val = normalize_date(row_normalized[k])
-                    break
-
-            # Find description
+            date_key = next((k for k in norm_row.keys() if 'date' in k), None)
+            if date_key:
+                date_val = normalize_date(norm_row[date_key])
+            else:
+                for val in norm_row.values():
+                    # Check if cell matches a date format
+                    for pat in DATE_PATTERNS:
+                        m = re.search(pat, val, re.IGNORECASE)
+                        if m:
+                            date_val = normalize_date(m.group(1))
+                            break
+                    if date_val:
+                        break
+            
+            # Find Description
             desc = ""
-            for k in ["description", "narration", "particulars", "details", "remarks", "transaction details"]:
-                if k in row_normalized and row_normalized[k]:
-                    desc = row_normalized[k]
-                    break
+            desc_key = next((k for k in norm_row.keys() if any(x in k for x in ['desc', 'narration', 'particular', 'remark'])), None)
+            if desc_key:
+                desc = norm_row[desc_key]
+            else:
+                # Use the longest non-numeric cell that is not the date or type
+                non_numeric = [v for v in norm_row.values() if v and not re.match(r'^[\d,\.\s-]+$', v) and v != date_val]
+                # Filter out obvious type words
+                non_numeric = [v for v in non_numeric if v.lower() not in ['credit', 'debit', 'cr', 'dr']]
+                if non_numeric:
+                    desc = max(non_numeric, key=len)
+            
             if not desc:
-                desc = list(row_normalized.values())[1] if len(row_normalized) > 1 else ""
+                continue
 
-            # Find amount
+            # Find Amount & Type
             amount = 0.0
             tx_type = "Debit"
-
-            # Debit/Credit separate columns
-            debit_val = 0.0
-            credit_val = 0.0
-            for k in ["debit", "dr", "withdrawal", "debit amount"]:
-                if k in row_normalized:
-                    debit_val = normalize_amount(row_normalized[k])
-                    break
-            for k in ["credit", "cr", "deposit", "credit amount"]:
-                if k in row_normalized:
-                    credit_val = normalize_amount(row_normalized[k])
-                    break
-
-            if credit_val > 0:
-                amount = credit_val
-                tx_type = "Credit"
-            elif debit_val > 0:
-                amount = debit_val
-                tx_type = "Debit"
+            
+            debit_key = next((k for k in norm_row.keys() if any(x in k for x in ['debit', 'withdrawal'])), None)
+            credit_key = next((k for k in norm_row.keys() if any(x in k for x in ['credit', 'deposit'])), None)
+            
+            if debit_key or credit_key:
+                dv = normalize_amount(norm_row.get(debit_key, ''))
+                cv = normalize_amount(norm_row.get(credit_key, ''))
+                if cv > 0:
+                    amount, tx_type = cv, "Credit"
+                elif dv > 0:
+                    amount, tx_type = dv, "Debit"
             else:
                 # Single amount column
-                for k in ["amount", "txn amount", "transaction amount"]:
-                    if k in row_normalized:
-                        amount = normalize_amount(row_normalized[k])
-                        break
-                # Type column
-                for k in ["type", "txn type", "dr/cr", "cr/dr"]:
-                    if k in row_normalized:
-                        raw = row_normalized[k].lower()
-                        tx_type = "Credit" if any(x in raw for x in ["cr", "credit"]) else "Debit"
-                        break
-                if amount == 0.0:
-                    tx_type = detect_transaction_type(row_normalized, desc)
+                amt_key = next((k for k in norm_row.keys() if 'amount' in k and 'balance' not in k), None)
+                if amt_key:
+                    amount = normalize_amount(norm_row[amt_key])
+                else:
+                    # find first numeric-looking value that is not the date
+                    for k, v in norm_row.items():
+                        if re.match(r'^[\d,\.]+$', v) and v != date_val:
+                            amount = normalize_amount(v)
+                            break
+                            
+                # Find Type column
+                type_key = next((k for k in norm_row.keys() if any(x in k for x in ['type', 'dr/cr'])), None)
+                if type_key:
+                    raw_type = norm_row[type_key].lower()
+                    tx_type = "Credit" if any(x in raw_type for x in ['cr', 'credit']) else "Debit"
+                else:
+                    tx_type = detect_transaction_type(norm_row, desc)
 
             # Use provided category or auto-detect
-            category = row_normalized.get("category", "")
+            category = norm_row.get("category", "")
             if not category or category.lower() in ["", "uncategorized", "other"]:
                 category, confidence = classify_category(desc)
             else:
@@ -526,7 +610,7 @@ def parse_excel_bytes(file_bytes: bytes) -> List[dict]:
             elif any(x in col for x in ["narration", "description", "particular", "remark"]): col_map["desc"] = i
             elif "debit" in col or "withdrawal" in col: col_map["debit"] = i
             elif "credit" in col or "deposit" in col: col_map["credit"] = i
-            elif "amount" in col: col_map["amount"] = i
+            elif "amount" in col and "balance" not in col: col_map["amount"] = i
             elif any(x in col for x in ["type", "dr/cr"]): col_map["type"] = i
 
         for row in rows[header_idx + 1:]:
@@ -585,6 +669,12 @@ def parse_excel_bytes(file_bytes: bytes) -> List[dict]:
 # ────────────────────────────────────────────
 def parse_text_bytes(file_bytes: bytes) -> List[dict]:
     """Parse raw text bank statement"""
+    # Try parsing as a structured table first (CSV/TSV/WSV/aligned table)
+    transactions = parse_csv_bytes(file_bytes)
+    if transactions:
+        logger.info(f"Successfully parsed text as structured table with {len(transactions)} rows.")
+        return transactions
+
     text = file_bytes.decode("utf-8-sig", errors="replace")
     transactions = _parse_text_lines(text)
     

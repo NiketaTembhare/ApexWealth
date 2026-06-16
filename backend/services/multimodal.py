@@ -24,7 +24,7 @@ def parse_financial_image(image_bytes: bytes, filename: str, mime_type: str) -> 
         raise ValueError("OPENROUTER_API_KEY environment variable is not set in backend/.env")
         
     # Default to Qwen2.5-VL or Gemini 2.5 Flash on OpenRouter
-    model = os.getenv("OPENROUTER_MULTIMODAL_MODEL", "models/gemini-2.5-flash-lite")
+    model = os.getenv("OPENROUTER_MULTIMODAL_MODEL", "gemini-2.5-flash")
     
     base64_image = encode_image_to_base64(image_bytes)
     
@@ -94,11 +94,31 @@ def parse_financial_image(image_bytes: bytes, filename: str, mime_type: str) -> 
         "max_tokens": 2048
     }
     
+    max_retries = 3
+    backoff = 2.0
+    response = None
+    for attempt in range(max_retries):
+        try:
+            logger.info(f"Sending image {filename} ({mime_type}) to VLM model: {model} (attempt {attempt + 1}/{max_retries})")
+            response = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=60)
+            if response.status_code >= 500 and attempt < max_retries - 1:
+                logger.warning(f"Gemini API returned status code {response.status_code}. Retrying in {backoff}s...")
+                import time
+                time.sleep(backoff)
+                backoff *= 2
+                continue
+            response.raise_for_status()
+            break
+        except Exception as e:
+            if attempt < max_retries - 1:
+                logger.warning(f"Error calling Gemini API: {e}. Retrying in {backoff}s...")
+                import time
+                time.sleep(backoff)
+                backoff *= 2
+                continue
+            raise e
+
     try:
-        logger.info(f"Sending image {filename} ({mime_type}) to VLM model: {model}")
-        response = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=60)
-        response.raise_for_status()
-        
         result = response.json()
         raw_text = result["choices"][0]["message"]["content"].strip()
         
@@ -139,7 +159,7 @@ def parse_financial_text(text: str) -> Dict:
     if not api_key:
         raise ValueError("OPENROUTER_API_KEY environment variable is not set in backend/.env")
         
-    model = os.getenv("PRIMARY_MODEL", "models/gemini-2.5-flash-lite")
+    model = os.getenv("PRIMARY_MODEL", "gemini-2.5-flash")
     
     prompt = f"""
     You are an expert forensic accountant and financial document analyst.
@@ -199,11 +219,31 @@ def parse_financial_text(text: str) -> Dict:
         "max_tokens": 2048
     }
     
+    max_retries = 3
+    backoff = 2.0
+    response = None
+    for attempt in range(max_retries):
+        try:
+            logger.info(f"Sending unstructured text to LLM model: {model} (attempt {attempt + 1}/{max_retries})")
+            response = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=60)
+            if response.status_code >= 500 and attempt < max_retries - 1:
+                logger.warning(f"Gemini API returned status code {response.status_code}. Retrying in {backoff}s...")
+                import time
+                time.sleep(backoff)
+                backoff *= 2
+                continue
+            response.raise_for_status()
+            break
+        except Exception as e:
+            if attempt < max_retries - 1:
+                logger.warning(f"Error calling Gemini API: {e}. Retrying in {backoff}s...")
+                import time
+                time.sleep(backoff)
+                backoff *= 2
+                continue
+            raise e
+
     try:
-        logger.info(f"Sending unstructured text to LLM model: {model}")
-        response = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=60)
-        response.raise_for_status()
-        
         result = response.json()
         raw_text = result["choices"][0]["message"]["content"].strip()
         

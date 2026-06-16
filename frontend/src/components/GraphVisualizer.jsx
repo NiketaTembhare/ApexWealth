@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { Network, RefreshCw, HelpCircle, Info, Database, Zap } from 'lucide-react';
+import { Network, RefreshCw, HelpCircle, Info, Database, Zap, ZoomIn, ZoomOut, Move, Unlock } from 'lucide-react';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 
+  (typeof window !== 'undefined' ? `http://${window.location.hostname}:8000` : 'http://localhost:8000');
 
 const NODE_COLORS = {
   User: { fill: '#3b82f6', border: '#1d4ed8', text: '#93c5fd' },
@@ -17,6 +18,13 @@ export default function GraphVisualizer() {
   const [error, setError] = useState(null);
   const [nodes, setNodes] = useState([]);
   
+  // Pan and Zoom states
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [draggedNode, setDraggedNode] = useState(null);
+
   const requestRef = useRef();
   const nodesRef = useRef([]);
   const containerRef = useRef();
@@ -31,16 +39,15 @@ export default function GraphVisualizer() {
       const graphData = response.data;
       setData(graphData);
       
-      // Initialize node positions randomly within bounds
-      const width = 600;
-      const height = 400;
+      // Initialize node positions randomly within bounds (1000x700)
+      const width = 1000;
+      const height = 700;
       const initializedNodes = graphData.nodes.map((node, i) => {
-        // Place User in the center, others spread out
         const isUser = node.type === 'User';
         return {
           ...node,
-          x: isUser ? width / 2 : width / 2 + (Math.random() - 0.5) * 200,
-          y: isUser ? height / 2 : height / 2 + (Math.random() - 0.5) * 150,
+          x: isUser ? width / 2 : width / 2 + (Math.random() - 0.5) * 500,
+          y: isUser ? height / 2 : height / 2 + (Math.random() - 0.5) * 350,
           vx: 0,
           vy: 0,
           fx: isUser ? width / 2 : null, // Pin user to center
@@ -62,12 +69,12 @@ export default function GraphVisualizer() {
   useEffect(() => {
     if (loading || data.nodes.length === 0) return;
     
-    const width = 600;
-    const height = 400;
-    const k = 0.05;       // Spring constant for links
-    const rep = 800;     // Repulsion constant between nodes
+    const width = 1000;
+    const height = 700;
+    const k = 0.05;        // Spring constant for links
+    const rep = 2500;      // Higher repulsion for spacing
     const friction = 0.85;
-    const centerGravity = 0.01;
+    const centerGravity = 0.008;
     
     const updatePhysics = () => {
       const currentNodes = [...nodesRef.current];
@@ -85,7 +92,7 @@ export default function GraphVisualizer() {
           const distSq = dx * dx + dy * dy + 0.1;
           const dist = Math.sqrt(distSq);
           
-          if (dist < 150) {
+          if (dist < 280) { // expanded repulsion field
             const force = rep / distSq;
             const fx = (dx / dist) * force;
             const fy = (dy / dist) * force;
@@ -105,7 +112,7 @@ export default function GraphVisualizer() {
           const dx = tNode.x - sNode.x;
           const dy = tNode.y - sNode.y;
           const dist = Math.sqrt(dx * dx + dy * dy) + 0.1;
-          const targetDist = 70; // preferred spring length
+          const targetDist = 120; // larger spring length to prevent clumping
           const force = k * (dist - targetDist);
           
           const fx = (dx / dist) * force;
@@ -136,9 +143,9 @@ export default function GraphVisualizer() {
         node.x += node.vx;
         node.y += node.vy;
         
-        // Bound checks
-        node.x = Math.max(20, Math.min(width - 20, node.x));
-        node.y = Math.max(20, Math.min(height - 20, node.y));
+        // Bound checks within expanded coordinates
+        node.x = Math.max(25, Math.min(width - 25, node.x));
+        node.y = Math.max(25, Math.min(height - 25, node.y));
       });
 
       nodesRef.current = currentNodes;
@@ -153,6 +160,94 @@ export default function GraphVisualizer() {
   useEffect(() => {
     fetchGraph();
   }, []);
+
+  // ── Drag & Zoom Handlers ──────────
+  const handleMouseDown = (e) => {
+    if (e.button !== 0) return; // Left click only
+    setIsDragging(true);
+    setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
+  };
+
+  const handleMouseMove = (e) => {
+    if (draggedNode) {
+      if (!containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+      
+      // Translate to SVG coordinate space (1000x700)
+      const clientSvgX = (mouseX / rect.width) * 1000;
+      const clientSvgY = (mouseY / rect.height) * 700;
+      
+      // Inverse transform pan & zoom
+      const svgX = (clientSvgX - pan.x) / zoom;
+      const svgY = (clientSvgY - pan.y) / zoom;
+      
+      const updatedNodes = nodesRef.current.map(n => {
+        if (n.id === draggedNode) {
+          n.fx = svgX;
+          n.fy = svgY;
+          n.x = svgX;
+          n.y = svgY;
+        }
+        return n;
+      });
+      nodesRef.current = updatedNodes;
+      setNodes(updatedNodes);
+    } else if (isDragging) {
+      setPan({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y });
+    }
+  };
+
+  const handleMouseUp = () => {
+    if (draggedNode) {
+      const updatedNodes = nodesRef.current.map(n => {
+        if (n.id === draggedNode) {
+          // Release it back into force-field (unless it's the central user node)
+          if (n.type !== 'User') {
+            n.fx = null;
+            n.fy = null;
+          }
+        }
+        return n;
+      });
+      nodesRef.current = updatedNodes;
+      setNodes(updatedNodes);
+      setDraggedNode(null);
+    }
+    setIsDragging(false);
+  };
+
+  const handleWheel = (e) => {
+    e.preventDefault();
+    const scale = 1.08;
+    const newZoom = e.deltaY < 0 ? zoom * scale : zoom / scale;
+    setZoom(Math.max(0.15, Math.min(newZoom, 6)));
+  };
+
+  const handleNodeMouseDown = (e, node) => {
+    e.stopPropagation();
+    setDraggedNode(node.id);
+    node.fx = node.x;
+    node.fy = node.y;
+  };
+
+  const handleResetView = () => {
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+  };
+
+  const handleReleaseAll = () => {
+    const updated = nodesRef.current.map(n => {
+      if (n.type !== 'User') {
+        n.fx = null;
+        n.fy = null;
+      }
+      return n;
+    });
+    nodesRef.current = updated;
+    setNodes(updated);
+  };
 
   if (loading) {
     return (
@@ -223,11 +318,10 @@ export default function GraphVisualizer() {
             <Network className="w-4 h-4 text-cyan-400" /> Relational Financial Knowledge Graph
           </h4>
           <p className="text-xs text-bank-textMuted mt-1">
-            Dynamic node-link map showing links between your identity, transactions, vendors, and compliance guidelines.
+            Dynamic node-link map showing links between your identity, transactions, vendors, and compliance guidelines. Use mouse scroll to Zoom, drag background to Pan.
           </p>
         </div>
         <div className="flex items-center gap-3">
-          {/* User Data badge — this graph is always populated from real DB data */}
           <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/25 rounded-full">
             <Database className="w-3.5 h-3.5 text-emerald-400" />
             <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest">User Data</span>
@@ -240,80 +334,126 @@ export default function GraphVisualizer() {
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         {/* Graph SVG canvas */}
-        <div className="lg:col-span-3 glass-panel p-4 flex items-center justify-center bg-bank-bg/40 relative">
-          <svg viewBox="0 0 600 400" className="w-full h-auto max-h-[380px] select-none" ref={containerRef}>
-            
-            {/* Draw edge lines */}
-            {data.edges.map((edge, idx) => {
-              const srcNode = nodes.find(n => n.id === edge.source);
-              const tgtNode = nodes.find(n => n.id === edge.target);
-              if (!srcNode || !tgtNode) return null;
-              
-              return (
-                <g key={idx}>
-                  <line 
-                    x1={srcNode.x} y1={srcNode.y}
-                    x2={tgtNode.x} y2={tgtNode.y}
-                    stroke="#26354D" strokeWidth="1.5" opacity="0.6"
-                  />
-                  {/* Small link descriptor label */}
-                  <text 
-                    x={(srcNode.x + tgtNode.x) / 2} 
-                    y={(srcNode.y + tgtNode.y) / 2 - 4} 
-                    fill="#94A3B8" fontSize="8" textAnchor="middle" opacity="0.4"
-                  >
-                    {edge.relation}
-                  </text>
-                </g>
-              );
-            })}
+        <div className="lg:col-span-3 glass-panel p-4 flex items-center justify-center bg-bank-bg/40 relative overflow-hidden h-[630px]">
+          <svg 
+            viewBox="0 0 1000 700" 
+            className="w-full h-full select-none cursor-grab active:cursor-grabbing" 
+            ref={containerRef}
+            onMouseDown={handleMouseDown}
+            onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUp}
+            onMouseLeave={handleMouseUp}
+            onWheel={handleWheel}
+          >
+            <g transform={`translate(${pan.x}, ${pan.y}) scale(${zoom})`}>
+              {/* Draw edge lines */}
+              {data.edges.map((edge, idx) => {
+                const srcNode = nodes.find(n => n.id === edge.source);
+                const tgtNode = nodes.find(n => n.id === edge.target);
+                if (!srcNode || !tgtNode) return null;
+                
+                return (
+                  <g key={idx}>
+                    <line 
+                      x1={srcNode.x} y1={srcNode.y}
+                      x2={tgtNode.x} y2={tgtNode.y}
+                      stroke="#26354D" strokeWidth="1.5" opacity="0.65"
+                    />
+                    <text 
+                      x={(srcNode.x + tgtNode.x) / 2} 
+                      y={(srcNode.y + tgtNode.y) / 2 - 4} 
+                      fill="#94A3B8" fontSize="7" fontWeight="medium" textAnchor="middle" opacity="0.5"
+                    >
+                      {edge.relation}
+                    </text>
+                  </g>
+                );
+              })}
 
-            {/* Draw node circles */}
-            {nodes.map(node => {
-              const style = NODE_COLORS[node.type] || { fill: '#64748b', border: '#475569', text: '#cbd5e1' };
-              const isUser = node.type === 'User';
-              const radius = isUser ? 14 : node.type === 'ComplianceRule' ? 12 : 9;
-              
-              return (
-                <g key={node.id} className="cursor-pointer group">
-                  <circle
-                    cx={node.x} cy={node.y} r={radius}
-                    fill={style.fill} stroke={style.border} strokeWidth="2"
-                    className="transition-all duration-300 group-hover:r-[12] group-hover:stroke-white/40"
-                  />
-                  <text
-                    x={node.x} y={node.y + radius + 12}
-                    fill="#F8FAFC" fontSize="8" fontWeight="bold" textAnchor="middle"
-                    className="opacity-80 group-hover:opacity-100 filter drop-shadow-md pointer-events-none"
+              {/* Draw node circles */}
+              {nodes.map(node => {
+                const style = NODE_COLORS[node.type] || { fill: '#64748b', border: '#475569', text: '#cbd5e1' };
+                const isUser = node.type === 'User';
+                const radius = isUser ? 16 : node.type === 'ComplianceRule' ? 13 : 10;
+                const isDragged = draggedNode === node.id;
+                
+                return (
+                  <g 
+                    key={node.id} 
+                    className="cursor-pointer group"
+                    onMouseDown={(e) => handleNodeMouseDown(e, node)}
                   >
-                    {node.label}
-                  </text>
-                </g>
-              );
-            })}
+                    <circle
+                      cx={node.x} cy={node.y} r={radius}
+                      fill={style.fill} stroke={isDragged ? '#ffffff' : style.border} strokeWidth={isDragged ? 3 : 2}
+                      className="transition-all duration-300 group-hover:r-[13] group-hover:stroke-white/40"
+                    />
+                    <text
+                      x={node.x} y={node.y + radius + 11}
+                      fill="#F8FAFC" fontSize="7.5" fontWeight="bold" textAnchor="middle"
+                      className="opacity-95 group-hover:opacity-100 filter drop-shadow-md pointer-events-none"
+                    >
+                      {node.label}
+                    </text>
+                  </g>
+                );
+              })}
+            </g>
           </svg>
+
+          {/* Floating UI Control Pad */}
+          <div className="absolute bottom-4 left-4 flex gap-2 z-10">
+            <button 
+              onClick={() => setZoom(z => Math.min(z * 1.2, 5))}
+              title="Zoom In"
+              className="p-2 bg-bank-card/90 border border-bank-cardBorder/80 hover:border-cyan-500/50 text-bank-textMuted hover:text-white rounded-lg transition shadow-md"
+            >
+              <ZoomIn className="w-4 h-4" />
+            </button>
+            <button 
+              onClick={() => setZoom(z => Math.max(z / 1.2, 0.15))}
+              title="Zoom Out"
+              className="p-2 bg-bank-card/90 border border-bank-cardBorder/80 hover:border-cyan-500/50 text-bank-textMuted hover:text-white rounded-lg transition shadow-md"
+            >
+              <ZoomOut className="w-4 h-4" />
+            </button>
+            <button 
+              onClick={handleResetView}
+              title="Reset Zoom & Pan"
+              className="p-2 bg-bank-card/90 border border-bank-cardBorder/80 hover:border-cyan-500/50 text-bank-textMuted hover:text-white rounded-lg transition shadow-md"
+            >
+              <Move className="w-4 h-4" />
+            </button>
+            <button 
+              onClick={handleReleaseAll}
+              title="Release Pinned Nodes"
+              className="p-2 bg-bank-card/90 border border-bank-cardBorder/80 hover:border-cyan-500/50 text-bank-textMuted hover:text-white rounded-lg transition shadow-md"
+            >
+              <Unlock className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         {/* Legend Sidebar */}
-        <div className="lg:col-span-1 glass-panel p-5 flex flex-col justify-start space-y-4">
+        <div className="lg:col-span-1 glass-panel p-5 flex flex-col justify-start space-y-4 h-[630px] overflow-y-auto">
           <h5 className="text-xs font-bold text-bank-textActive uppercase tracking-wider border-b border-white/5 pb-2">
             Graph Legend
           </h5>
           
-          <div className="space-y-3 text-xs">
+          <div className="space-y-4 text-xs">
             {Object.entries(NODE_COLORS).map(([type, colors]) => {
               const count = nodes.filter(n => n.type === type).length;
               return (
                 <div key={type} className="flex items-center gap-3">
-                  <span className="w-3.5 h-3.5 rounded-full border flex-shrink-0" style={{ backgroundColor: colors.fill, borderColor: colors.border }} />
+                  <span className="w-3.5 h-3.5 rounded-full border flex-shrink-0 animate-pulse" style={{ backgroundColor: colors.fill, borderColor: colors.border }} />
                   <div className="flex-1">
                     <p className="font-bold text-bank-textActive flex items-center justify-between">
                       {type.replace('ComplianceRule', 'Compliance Rule')}
-                      {count > 0 && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full" style={{ backgroundColor: colors.fill + '22', color: colors.text }}>{count}</span>}
+                      {count > 0 && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-bank-bg border border-bank-cardBorder" style={{ color: colors.text }}>{count}</span>}
                     </p>
-                    <p className="text-[10px] text-bank-textMuted">
+                    <p className="text-[10px] text-bank-textMuted leading-normal">
                       {type === 'User' ? 'Entity node representing user account' :
-                       type === 'Transaction' ? 'Parsed statement ledger row' :
+                       type === 'Transaction' ? 'Enriched statement ledger ledger row' :
                        type === 'Vendor' ? 'Normalized payee recipient link' :
                        'RBI / SEBI regulatory policy benchmark'}
                     </p>
@@ -323,21 +463,20 @@ export default function GraphVisualizer() {
             })}
           </div>
 
-          {/* Graph stats */}
           <div className="pt-3 border-t border-white/5 space-y-2">
             <div className="flex justify-between text-[10px]">
-              <span className="text-bank-textMuted">Total Nodes</span>
+              <span className="text-bank-textMuted font-medium">Total Nodes</span>
               <span className="font-bold text-bank-textActive">{nodes.length}</span>
             </div>
             <div className="flex justify-between text-[10px]">
-              <span className="text-bank-textMuted">Relationships</span>
+              <span className="text-bank-textMuted font-medium">Relationships</span>
               <span className="font-bold text-bank-textActive">{data.edges.length}</span>
             </div>
           </div>
 
           <div className="p-3 bg-cyan-500/5 border border-cyan-500/10 rounded-xl flex items-start gap-2 text-[10px] text-cyan-400 font-semibold leading-relaxed pt-3">
             <Info className="w-4 h-4 flex-shrink-0 mt-0.5" />
-            Physics forces pull transactions closer to common vendors and flag rule violations dynamically.
+            <span>Interactive Zoom & Drag. Force-directed physics pulls related transactions together. Drag nodes to inspect specific clusters.</span>
           </div>
         </div>
       </div>
